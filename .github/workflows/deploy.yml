@@ -43,6 +43,13 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-central1-docker.pkg.dev
       
+      - name: Create Artifact Registry repository if not exists
+        run: |
+          gcloud artifacts repositories create cloud-run-source-deploy \
+            --repository-format=docker \
+            --location=us-central1 \
+            --project=${{ secrets.FIREBASE_PROJECT_ID }} || true
+      
       - name: Build and Push Docker Image
         run: |
           docker build -t us-central1-docker.pkg.dev/${{ secrets.FIREBASE_PROJECT_ID }}/cloud-run-source-deploy/music-app-server:${{ github.sha }} .
