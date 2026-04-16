@@ -4,10 +4,10 @@ import { FirebaseAdminService } from '../auth/firebase-admin.service';
 
 @Injectable()
 export class FirestoreService {
-  private readonly db: FirebaseFirestore.Firestore;
+  constructor(private readonly firebaseAdmin: FirebaseAdminService) {}
 
-  constructor(private readonly firebaseAdmin: FirebaseAdminService) {
-    this.db = firebaseAdmin.app.firestore();
+  private get db(): FirebaseFirestore.Firestore {
+    return this.firebaseAdmin.app.firestore();
   }
 
   collection(path: string): FirebaseFirestore.CollectionReference {
