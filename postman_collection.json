@@ -1,0 +1,379 @@
+{
+	"info": {
+		"name": "Music App API",
+		"description": "NestJS Music API with Firebase, YouTube, and Gemini AI",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "https://music-app-server-lupbg4y2ha-uc.a.run.app",
+			"type": "string"
+		},
+		{
+			"key": "firebaseToken",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{firebaseToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Songs",
+			"item": [
+				{
+					"name": "Get All Songs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs?limit=10&offset=0",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Song by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Artists",
+			"item": [
+				{
+					"name": "Get All Artists",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/artists?limit=10&offset=0",
+							"host": ["{{baseUrl}}"],
+							"path": ["artists"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Artist by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/artists/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["artists", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Artist Songs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/artists/:id/songs",
+							"host": ["{{baseUrl}}"],
+							"path": ["artists", ":id", "songs"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Artist Albums",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/artists/:id/albums",
+							"host": ["{{baseUrl}}"],
+							"path": ["artists", ":id", "albums"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Albums",
+			"item": [
+				{
+					"name": "Get All Albums",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/albums?limit=10&offset=0",
+							"host": ["{{baseUrl}}"],
+							"path": ["albums"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Album by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/albums/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["albums", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Playlists",
+			"item": [
+				{
+					"name": "Get All Playlists",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/playlists",
+							"host": ["{{baseUrl}}"],
+							"path": ["playlists"]
+						}
+					}
+				},
+				{
+					"name": "Create Playlist",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"My Playlist\",\n  \"description\": \"My favorite songs\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/playlists",
+							"host": ["{{baseUrl}}"],
+							"path": ["playlists"]
+						}
+					}
+				},
+				{
+					"name": "Delete Playlist",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/playlists/:id",
+							"host": ["{{baseUrl}}"],
+							"path": ["playlists", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Add Song to Playlist",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"songId\": \"song-id-here\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/playlists/:id/songs",
+							"host": ["{{baseUrl}}"],
+							"path": ["playlists", ":id", "songs"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "Remove Song from Playlist",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/playlists/:id/songs/:songId",
+							"host": ["{{baseUrl}}"],
+							"path": ["playlists", ":id", "songs", ":songId"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								},
+								{
+									"key": "songId",
+									"value": ""
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Search",
+			"item": [
+				{
+					"name": "Search",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/search?q=search-term",
+							"host": ["{{baseUrl}}"],
+							"path": ["search"],
+							"query": [
+								{
+									"key": "q",
+									"value": "search-term"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Suggestions",
+			"item": [
+				{
+					"name": "Get Suggestions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/suggestions?q=query",
+							"host": ["{{baseUrl}}"],
+							"path": ["suggestions"],
+							"query": [
+								{
+									"key": "q",
+									"value": "query"
+								}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Sync",
+			"item": [
+				{
+					"name": "Trigger Sync (Admin)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"playlistId\": \"youtube-playlist-id\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/sync/trigger",
+							"host": ["{{baseUrl}}"],
+							"path": ["sync", "trigger"]
+						}
+					}
+				}
+			]
+		}
+	]
+}
