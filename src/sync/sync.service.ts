@@ -298,23 +298,63 @@ export class SyncService {
   private async saveSong(song: any, artistId: string, genre: string): Promise<void> {
     const nameLower = song.title.toLowerCase();
     
-    // Check if song already exists
-    const existing = await this.firestoreService.collection('songs')
-      .where('youtubeId', '==', song.youtubeId)
-      .limit(1)
+    // Check if song already exists by title + artist
+    const existingByTitleArtist = await this.firestoreService.collection('songs')
+      .where('nameLower', '==', nameLower)
+      .where('artistName', '==', song.artistName)
+      .limit(5)
       .get();
 
-    if (!existing.empty) {
-      const doc = existing.docs[0];
-      const data = doc.data();
+    if (!existingByTitleArtist.empty) {
+      // Find the best existing version
+      const existingDocs = existingByTitleArtist.docs;
+      const newDuration = song.durationSeconds || 0;
       
-      // Add genre if not already present
-      const genres = data.genres || [data.genre];
-      if (!genres.includes(genre)) {
-        await doc.ref.update({ genres: [...genres, genre] });
+      // Ideal song duration is 2-5 minutes (120-300 seconds)
+      const idealMin = 120;
+      const idealMax = 300;
+      
+      const scoreSong = (duration: number) => {
+        if (duration >= idealMin && duration <= idealMax) return 100;
+        if (duration < idealMin) return Math.max(0, 100 - (idealMin - duration));
+        return Math.max(0, 100 - (duration - idealMax) / 10);
+      };
+      
+      const newScore = scoreSong(newDuration);
+      let shouldReplace = false;
+      let docToUpdate = existingDocs[0];
+      
+      for (const doc of existingDocs) {
+        const data = doc.data();
+        const existingDuration = data.durationSeconds || 0;
+        const existingScore = scoreSong(existingDuration);
+        
+        // Replace if new song has better duration score
+        if (newScore > existingScore + 10) {
+          shouldReplace = true;
+          docToUpdate = doc;
+          break;
+        }
+        
+        // Add genre to existing song
+        const genres = data.genres || [data.genre];
+        if (!genres.includes(genre)) {
+          await doc.ref.update({ genres: [...genres, genre] });
+        }
       }
       
-      this.logger.log(`Song already exists: ${song.title} (added genre: ${genre})`);
+      if (shouldReplace) {
+        this.logger.log(`Replacing song with better version: ${song.title} (${newDuration}s vs ${docToUpdate.data().durationSeconds}s)`);
+        await docToUpdate.ref.update({
+          youtubeId: song.youtubeId,
+          coverImageUrl: song.thumbnailUrl || docToUpdate.data().coverImageUrl,
+          durationSeconds: newDuration,
+          genres: [...new Set([...(docToUpdate.data().genres || [docToUpdate.data().genre]), genre])],
+        });
+      } else {
+        this.logger.log(`Song already exists with good version: ${song.title}`);
+      }
+      
       return;
     }
 

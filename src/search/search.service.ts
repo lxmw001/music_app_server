@@ -4,6 +4,7 @@ import { Cache } from 'cache-manager';
 import { FirestoreService } from '../firestore/firestore.service';
 import { GeminiService } from '../sync/gemini.service';
 import { CacheKeys } from '../cache/cache-keys';
+import { compareTwoStrings } from 'string-similarity';
 
 export interface SearchResults {
   songs: Array<{ id: string; [key: string]: unknown }>;
@@ -78,6 +79,26 @@ export class SearchService {
       }
     }
 
+    // If no exact matches, try fuzzy matching
+    if (results.length === 0) {
+      const allDocs = await this.firestore.collection(collectionName).limit(500).get();
+      const threshold = 0.7;
+
+      for (const doc of allDocs.docs) {
+        const data = doc.data();
+        
+        // Exclude system playlists
+        if (collectionName === 'playlists' && data['ownerUid'] === null) {
+          continue;
+        }
+
+        // Fuzzy match on name field
+        if (data[nameField] && compareTwoStrings(q, data[nameField].toLowerCase()) >= threshold) {
+          results.push({ id: doc.id, ...data });
+        }
+      }
+    }
+
     return results;
   }
 
@@ -117,6 +138,45 @@ export class SearchService {
       if (!seen.has(doc.id)) {
         seen.add(doc.id);
         results.push({ id: doc.id, ...doc.data() });
+      }
+    }
+
+    // If no exact matches, try fuzzy matching on all songs
+    if (results.length === 0) {
+      const allSongs = await this.firestore.collection('songs').limit(1000).get();
+      const threshold = 0.7;
+
+      for (const doc of allSongs.docs) {
+        const data = doc.data();
+        
+        // Fuzzy match on artist name
+        if (data.artistName && compareTwoStrings(q, data.artistName.toLowerCase()) >= threshold) {
+          results.push({ id: doc.id, ...data });
+          continue;
+        }
+
+        // Fuzzy match on title
+        if (data.title && compareTwoStrings(q, data.title.toLowerCase()) >= threshold) {
+          results.push({ id: doc.id, ...data });
+          continue;
+        }
+
+        // Fuzzy match on genre
+        if (data.genre && compareTwoStrings(q, data.genre.toLowerCase()) >= threshold) {
+          results.push({ id: doc.id, ...data });
+          continue;
+        }
+
+        // Fuzzy match on genres array
+        if (data.genres?.some((g: string) => compareTwoStrings(q, g.toLowerCase()) >= threshold)) {
+          results.push({ id: doc.id, ...data });
+          continue;
+        }
+
+        // Fuzzy match on tags
+        if (data.tags?.some((tag: string) => compareTwoStrings(q, tag.toLowerCase()) >= threshold)) {
+          results.push({ id: doc.id, ...data });
+        }
       }
     }
 
