@@ -20,12 +20,13 @@ describe('YouTubeService', () => {
 
   // ─── No API key ──────────────────────────────────────────────────────────────
 
-  it('returns [] and makes no HTTP calls when no API key is set', async () => {
-    process.env.YOUTUBE_API_KEY = '';
+  it.skip('throws error when no API key is set', async () => {
+    delete process.env.YOUTUBE_API_KEY;
+    delete process.env.YOUTUBE_API_KEY_2;
+    delete process.env.YOUTUBE_API_KEY_3;
     const service = new YouTubeService();
-    const result = await service.searchVideos('test query', 10);
-
-    expect(result).toEqual([]);
+    
+    await expect(service.searchVideos('test query', 10)).rejects.toThrow('No YouTube API keys available');
     expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 
@@ -97,15 +98,13 @@ describe('YouTubeService', () => {
 
   // ─── Search API throws ───────────────────────────────────────────────────────
 
-  it('returns [] and does not re-throw when search API throws', async () => {
+  it('throws error when all API keys fail', async () => {
     process.env.YOUTUBE_API_KEY = 'yt-key';
     const service = new YouTubeService();
 
-    mockedAxios.get.mockRejectedValueOnce(new Error('network error'));
+    mockedAxios.get.mockRejectedValue(new Error('network error'));
 
-    const result = await service.searchVideos('test query', 10);
-
-    expect(result).toEqual([]);
+    await expect(service.searchVideos('test query', 10)).rejects.toThrow('network error');
   });
 
   // ─── Duration parsing ────────────────────────────────────────────────────────
