@@ -17,6 +17,14 @@ export class FirebaseAdminService implements OnModuleInit {
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
     const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
+    this.logger.log(`Project ID: ${projectId}`);
+    this.logger.log(`Client Email: ${clientEmail}`);
+    this.logger.log(`Private Key length: ${privateKey?.length}`);
+
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error('Missing Firebase credentials in environment variables');
+    }
+
     this._app = admin.initializeApp({
       credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
     });

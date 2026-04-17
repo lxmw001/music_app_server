@@ -5,6 +5,18 @@ import { AuthenticatedRequest } from '../auth/interfaces/authenticated-request.i
 @Injectable()
 export class AdminGuard extends FirebaseAuthGuard {
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Skip auth in development
+    if (process.env.NODE_ENV === 'development') {
+      const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
+      req.user = {
+        uid: 'dev-user',
+        email: 'dev@example.com',
+        admin: true,
+      };
+      return true;
+    }
+
+    // Use normal auth in production
     await super.canActivate(context);
     const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
     if (req.user?.admin !== true) {

@@ -12,7 +12,8 @@ export class SyncScheduler {
   async handleDailySync(): Promise<void> {
     this.logger.log('Daily sync cron triggered');
     try {
-      await this.syncService.runSync({ genres: [], force: false });
+      const result = await this.syncService.startSync();
+      this.logger.log(`Daily sync started: ${result.syncId}`);
     } catch (error) {
       this.logger.error(`Daily sync failed: ${(error as Error).message}`);
     }

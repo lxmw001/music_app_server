@@ -1,286 +1,378 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as crypto from 'crypto';
-import * as admin from 'firebase-admin';
-import { FirestoreService } from '../firestore/firestore.service';
 import { GeminiService } from './gemini.service';
 import { YouTubeService } from './youtube.service';
-import {
-  SyncRequestDto,
-  RawYouTubeResult,
-  CleanedSongResult,
-} from './interfaces/sync.interfaces';
+import { FirestoreService } from '../firestore/firestore.service';
+import { SyncProgress } from './interfaces/sync.interfaces';
 
 @Injectable()
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
 
   constructor(
-    private readonly firestore: FirestoreService,
-    private readonly gemini: GeminiService,
-    private readonly youtube: YouTubeService,
+    private readonly geminiService: GeminiService,
+    private readonly youtubeService: YouTubeService,
+    private readonly firestoreService: FirestoreService,
   ) {}
 
-  async runSync(dto: SyncRequestDto): Promise<void> {
-    const { force = false } = dto;
-    let genres = dto.genres && dto.genres.length > 0 ? dto.genres : [];
+  async startSync(genres?: string[], country?: string): Promise<{ syncId: string; message: string }> {
+    const syncId = `sync_${Date.now()}`;
+    
+    const progress: SyncProgress = {
+      id: syncId,
+      status: 'running',
+      startedAt: new Date(),
+      lastUpdatedAt: new Date(),
+      country,
+      processedGenres: [],
+      processedArtistsByGenre: {},
+      artistsByGenre: {},
+      totalArtists: 0,
+      processedArtists: 0,
+      totalSongs: 0,
+      processedSongs: 0,
+      failedArtists: [],
+      quotaExceeded: false,
+    };
 
-    this.logger.log('Sync pipeline started');
+    await this.saveProgress(progress);
+    
+    // Run sync in background
+    this.runSync(syncId, genres, country).catch(err => {
+      this.logger.error(`Sync ${syncId} failed: ${err.message}`);
+    });
 
-    // Step 1: Auto genre discovery
-    if (genres.length === 0) {
-      this.logger.log('No genres provided — calling getPopularGenres()');
-      genres = await this.gemini.getPopularGenres();
+    return { syncId, message: 'Sync started. Check progress with GET /sync/progress/:syncId' };
+  }
+
+  async getProgress(syncId: string): Promise<SyncProgress | null> {
+    const doc = await this.firestoreService.collection('sync_progress').doc(syncId).get();
+    if (!doc.exists) return null;
+    return doc.data() as SyncProgress;
+  }
+
+  async resumeSync(syncId: string): Promise<{ message: string }> {
+    const progress = await this.getProgress(syncId);
+    if (!progress) throw new Error('Sync not found');
+    if (progress.status === 'completed') throw new Error('Sync already completed');
+    
+    progress.status = 'running';
+    progress.quotaExceeded = false;
+    progress.lastUpdatedAt = new Date();
+    await this.saveProgress(progress);
+
+    this.runSync(syncId).catch(err => {
+      this.logger.error(`Resume sync ${syncId} failed: ${err.message}`);
+    });
+
+    return { message: 'Sync resumed' };
+  }
+
+  async incrementalSync(genre: string, country?: string): Promise<{ syncId: string; message: string; newArtists: number }> {
+    const syncId = `sync_incremental_${genre}_${Date.now()}`;
+    
+    // Get fresh artist list from Gemini
+    const freshArtists = await this.geminiService.getArtistsForGenre(genre);
+    
+    // Find existing syncs for this genre to get processed artists
+    const existingProcessed = await this.getProcessedArtistsForGenre(genre);
+    
+    // Filter to only new artists
+    const newArtists = freshArtists.filter(
+      artist => !existingProcessed.includes(artist.name.toLowerCase())
+    );
+
+    if (newArtists.length === 0) {
+      return { syncId, message: 'No new artists found', newArtists: 0 };
     }
 
-    const allRawResults: RawYouTubeResult[] = [];
+    const progress: SyncProgress = {
+      id: syncId,
+      status: 'running',
+      startedAt: new Date(),
+      lastUpdatedAt: new Date(),
+      country,
+      processedGenres: [],
+      processedArtistsByGenre: { [genre]: [] },
+      artistsByGenre: { [genre]: newArtists },
+      totalArtists: newArtists.length,
+      processedArtists: 0,
+      totalSongs: 0,
+      processedSongs: 0,
+      failedArtists: [],
+      quotaExceeded: false,
+    };
 
-    // Steps 2-6: Artist discovery, query generation, cache check, YouTube search
-    for (const genre of genres) {
-      const artists = await this.gemini.getArtistsForGenre(genre);
-      const sortedArtists = [...artists].sort((a, b) => a.rank - b.rank);
+    await this.saveProgress(progress);
+    
+    // Run sync for just this genre with new artists
+    this.runSync(syncId, [genre], country).catch(err => {
+      this.logger.error(`Incremental sync ${syncId} failed: ${err.message}`);
+    });
 
-      for (const artist of sortedArtists) {
-        const queries = await this.gemini.generateSearchQueries(artist.name, artist.topSongs);
+    return { 
+      syncId, 
+      message: `Incremental sync started for ${newArtists.length} new artists in ${genre}`,
+      newArtists: newArtists.length
+    };
+  }
 
-        for (const query of queries) {
-          const queryHash = this.hashQuery(query);
-          const cacheRef = this.firestore.doc(`syncCache/${queryHash}`);
-
-          let results;
-          if (!force) {
-            const cached = await cacheRef.get();
-            if (cached.exists) {
-              results = cached.data()!.results;
-              this.logger.debug(`Cache hit for query: ${query}`);
-            }
-          }
-
-          if (!results) {
-            results = await this.youtube.search(query);
-            await cacheRef.set({
-              query,
-              results,
-              cachedAt: admin.firestore.Timestamp.now(),
-            });
-          }
-
-          for (const r of results) {
-            allRawResults.push({
-              ...r,
-              genre,
-              artistRank: artist.rank,
-              artistName: artist.name,
-            });
-          }
-        }
-      }
+  private async getProcessedArtistsForGenre(genre: string): Promise<string[]> {
+    const processed = new Set<string>();
+    
+    // Query all sync progress documents
+    const snapshot = await this.firestoreService.collection('sync_progress').get();
+    
+    for (const doc of snapshot.docs) {
+      const data = doc.data() as SyncProgress;
+      const artistsForGenre = data.processedArtistsByGenre?.[genre] || [];
+      artistsForGenre.forEach(name => processed.add(name.toLowerCase()));
     }
+    
+    return Array.from(processed);
+  }
 
-    // Step 7: Clean and deduplicate
-    const cleaned = await this.gemini.cleanAndDeduplicate(allRawResults);
-    this.logger.log(`Cleaned ${cleaned.length} songs from ${allRawResults.length} raw results`);
+  private async runSync(syncId: string, requestedGenres?: string[], country?: string): Promise<void> {
+    const progress = await this.getProgress(syncId);
+    if (!progress) return;
 
-    // Steps 8-10: Persist songs, artists, albums
-    let processed = 0;
-    let skipped = 0;
-    let failed = 0;
-
-    // Track genre → songIds and album → songIds for playlist upsert
-    const genreSongMap = new Map<string, string[]>();
-    const albumSongMap = new Map<string, { albumName: string; songIds: string[] }>();
-
-    for (const song of cleaned) {
-      try {
-        // Step 10: Deduplication check
-        const existing = await this.firestore
-          .collection('songs')
-          .where('title', '==', song.title)
-          .where('artistName', '==', song.artistName)
-          .limit(1)
-          .get();
-
-        if (!existing.empty) {
-          skipped++;
-          const existingId = existing.docs[0].id;
-          this.trackGenreAndAlbum(genreSongMap, albumSongMap, song, existingId);
+    try {
+      const genres = requestedGenres || await this.geminiService.getPopularGenres(country || progress.country);
+      
+      for (const genre of genres) {
+        if (progress.processedGenres.includes(genre)) {
+          this.logger.log(`Skipping already processed genre: ${genre}`);
           continue;
         }
 
-        // Upsert artist
-        const artistId = await this.upsertArtist(song.artistName);
+        progress.currentGenre = genre;
+        await this.saveProgress(progress);
 
-        // Upsert album if present
-        let albumId: string | null = null;
-        if (song.albumName) {
-          albumId = await this.upsertAlbum(song.albumName, artistId);
+        // Get or reuse cached artist list
+        let artists = progress.artistsByGenre[genre];
+        if (!artists) {
+          artists = await this.geminiService.getArtistsForGenre(genre);
+          progress.artistsByGenre[genre] = artists;
+          progress.totalArtists += artists.length;
+          await this.saveProgress(progress);
         }
 
-        // Upsert song
-        const songRef = this.firestore.collection('songs').doc();
-        await songRef.set({
-          title: song.title,
-          artistName: song.artistName,
-          durationSeconds: song.durationSeconds ?? 0,
-          coverImageUrl: null,
-          youtubeId: song.youtubeId,
-          youtubeIdPendingReview: false,
-          artistId,
-          albumId,
-          genre: song.genre,
-          createdAt: admin.firestore.Timestamp.now(),
-          updatedAt: admin.firestore.Timestamp.now(),
-        });
-
-        this.trackGenreAndAlbum(genreSongMap, albumSongMap, song, songRef.id);
-        if (albumId && song.albumName) {
-          const entry = albumSongMap.get(albumId);
-          if (entry) entry.albumName = song.albumName;
+        if (!progress.processedArtistsByGenre[genre]) {
+          progress.processedArtistsByGenre[genre] = [];
         }
 
-        processed++;
-      } catch (error) {
-        this.logger.error(
-          `Failed to persist song "${song.title}" by "${song.artistName}": ${(error as Error).message}`,
-        );
-        failed++;
-      }
-    }
+        for (let i = 0; i < artists.length; i++) {
+          const artist = artists[i];
+          
+          if (progress.processedArtistsByGenre[genre].includes(artist.name)) {
+            this.logger.log(`Skipping already processed artist: ${artist.name}`);
+            continue;
+          }
 
-    // Step 12: Genre playlist upsert
-    for (const genre of genres) {
-      try {
-        const songIds = genreSongMap.get(genre) ?? [];
-        if (songIds.length === 0) continue;
-        const playlistId = await this.upsertSystemPlaylist(genre, 'genre');
-        await this.upsertPlaylistSongs(playlistId, songIds);
-      } catch (error) {
-        this.logger.error(`Genre playlist upsert failed for "${genre}": ${(error as Error).message}`);
-      }
-    }
+          progress.currentArtistIndex = i;
+          await this.saveProgress(progress);
 
-    // Step 12: Album playlist upsert
-    for (const [albumId, { albumName, songIds }] of albumSongMap.entries()) {
-      try {
-        if (songIds.length === 0) continue;
-        const playlistId = await this.upsertSystemPlaylist(albumName, 'album', albumId);
-        await this.upsertPlaylistSongs(playlistId, songIds);
-      } catch (error) {
-        this.logger.error(`Album playlist upsert failed for "${albumName}": ${(error as Error).message}`);
-      }
-    }
+          try {
+            // Save or get artist from Firestore
+            const artistDoc = await this.saveOrGetArtist(artist.name, genre);
+            
+            const queries = await this.geminiService.generateSearchQueries(artist.name, artist.topSongs);
+            
+            for (const query of queries) {
+              try {
+                const results = await this.youtubeService.searchVideos(query, 10);
+                
+                const rawResults = results.map(r => ({
+                  ...r,
+                  genre,
+                  artistRank: artist.rank,
+                  artistName: artist.name,
+                }));
 
-    // Step 13: Summary
-    this.logger.log(
-      `Sync complete — processed: ${processed}, skipped: ${skipped}, failed: ${failed}`,
-    );
+                const cleaned = await this.geminiService.cleanAndDeduplicate(rawResults);
+                
+                for (const song of cleaned) {
+                  await this.saveSong(song, artistDoc.id, genre);
+                  progress.processedSongs++;
+                }
+
+                progress.totalSongs += cleaned.length;
+                await this.saveProgress(progress);
+
+              } catch (error) {
+                if (this.isQuotaError(error)) {
+                  const resetTime = this.getQuotaResetTime();
+                  const waitMs = resetTime.getTime() - Date.now();
+                  
+                  this.logger.warn(`YouTube quota exceeded. Will auto-resume at ${resetTime.toISOString()}`);
+                  progress.status = 'paused';
+                  progress.quotaExceeded = true;
+                  progress.lastUpdatedAt = new Date();
+                  await this.saveProgress(progress);
+                  
+                  // Schedule auto-resume
+                  setTimeout(() => {
+                    this.logger.log(`Auto-resuming sync ${syncId} after quota reset`);
+                    this.resumeSync(syncId).catch(err => {
+                      this.logger.error(`Auto-resume failed: ${err.message}`);
+                    });
+                  }, waitMs);
+                  
+                  return;
+                }
+                this.logger.error(`Query "${query}" failed: ${error.message}`);
+              }
+            }
+
+            progress.processedArtists++;
+            progress.processedArtistsByGenre[genre].push(artist.name);
+            await this.saveProgress(progress);
+
+          } catch (error) {
+            this.logger.error(`Artist ${artist.name} failed: ${error.message}`);
+            progress.failedArtists.push({
+              genre,
+              artist: artist.name,
+              error: error.message,
+            });
+            progress.processedArtistsByGenre[genre].push(artist.name);
+            await this.saveProgress(progress);
+          }
+        }
+
+        progress.processedGenres.push(genre);
+        progress.currentGenre = undefined;
+        progress.currentArtistIndex = undefined;
+        await this.saveProgress(progress);
+      }
+
+      progress.status = 'completed';
+      progress.completedAt = new Date();
+      progress.lastUpdatedAt = new Date();
+      await this.saveProgress(progress);
+
+      this.logger.log(`Sync ${syncId} completed successfully`);
+
+    } catch (error) {
+      this.logger.error(`Sync ${syncId} failed: ${error.message}`);
+      progress.status = 'failed';
+      progress.error = error.message;
+      progress.lastUpdatedAt = new Date();
+      await this.saveProgress(progress);
+    }
   }
 
-  private hashQuery(query: string): string {
-    return crypto.createHash('sha256').update(query.trim().toLowerCase()).digest('hex');
-  }
-
-  private trackGenreAndAlbum(
-    genreSongMap: Map<string, string[]>,
-    albumSongMap: Map<string, { albumName: string; songIds: string[] }>,
-    song: CleanedSongResult,
-    songId: string,
-  ): void {
-    if (!genreSongMap.has(song.genre)) genreSongMap.set(song.genre, []);
-    genreSongMap.get(song.genre)!.push(songId);
-
-    if (song.albumName) {
-      const albumKey = `album_${song.albumName.toLowerCase()}`;
-      if (!albumSongMap.has(albumKey)) {
-        albumSongMap.set(albumKey, { albumName: song.albumName, songIds: [] });
-      }
-      albumSongMap.get(albumKey)!.songIds.push(songId);
-    }
-  }
-
-  private async upsertArtist(name: string): Promise<string> {
-    const existing = await this.firestore
-      .collection('artists')
-      .where('name', '==', name)
+  private async saveOrGetArtist(artistName: string, genre: string): Promise<any> {
+    const nameLower = artistName.toLowerCase();
+    
+    // Check if artist already exists
+    const existing = await this.firestoreService.collection('artists')
+      .where('nameLower', '==', nameLower)
       .limit(1)
       .get();
 
-    if (!existing.empty) return existing.docs[0].id;
+    if (!existing.empty) {
+      const doc = existing.docs[0];
+      const data = doc.data();
+      
+      // Add genre if not already present
+      const genres = data.genres || [];
+      if (!genres.includes(genre)) {
+        await doc.ref.update({ genres: [...genres, genre] });
+      }
+      
+      return { id: doc.id, ...data };
+    }
 
-    const ref = this.firestore.collection('artists').doc();
-    await ref.set({
-      name,
-      biography: '',
-      profileImageUrl: null,
-      createdAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now(),
-    });
-    return ref.id;
+    // Create new artist
+    const artistData = {
+      name: artistName,
+      nameLower,
+      genres: [genre],
+      createdAt: new Date(),
+    };
+
+    const docRef = await this.firestoreService.collection('artists').add(artistData);
+    return { id: docRef.id, ...artistData };
   }
 
-  private async upsertAlbum(title: string, artistId: string): Promise<string> {
-    const existing = await this.firestore
-      .collection('albums')
-      .where('title', '==', title)
-      .where('artistId', '==', artistId)
+  private async saveSong(song: any, artistId: string, genre: string): Promise<void> {
+    const nameLower = song.title.toLowerCase();
+    
+    // Check if song already exists
+    const existing = await this.firestoreService.collection('songs')
+      .where('youtubeId', '==', song.youtubeId)
       .limit(1)
       .get();
 
-    if (!existing.empty) return existing.docs[0].id;
+    if (!existing.empty) {
+      const doc = existing.docs[0];
+      const data = doc.data();
+      
+      // Add genre if not already present
+      const genres = data.genres || [data.genre];
+      if (!genres.includes(genre)) {
+        await doc.ref.update({ genres: [...genres, genre] });
+      }
+      
+      this.logger.log(`Song already exists: ${song.title} (added genre: ${genre})`);
+      return;
+    }
 
-    const ref = this.firestore.collection('albums').doc();
-    await ref.set({
-      title,
-      releaseYear: new Date().getFullYear(),
-      coverImageUrl: null,
+    const songData = {
+      title: song.title,
+      artistName: song.artistName,
       artistId,
-      createdAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now(),
-    });
-    return ref.id;
+      nameLower,
+      youtubeId: song.youtubeId,
+      coverImageUrl: song.thumbnailUrl || '',
+      genre,
+      genres: [genre],
+      artistRank: song.artistRank,
+      durationSeconds: song.durationSeconds || 0,
+      searchTokens: this.generateSearchTokens(song.title, song.artistName),
+      createdAt: new Date(),
+    };
+
+    await this.firestoreService.collection('songs').add(songData);
   }
 
-  private async upsertSystemPlaylist(
-    name: string,
-    type: 'genre' | 'album',
-    existingId?: string,
-  ): Promise<string> {
-    const query = this.firestore
-      .collection('playlists')
-      .where('name', '==', name)
-      .where('type', '==', type)
-      .where('ownerUid', '==', null)
-      .limit(1);
-
-    const snapshot = await query.get();
-    if (!snapshot.empty) return snapshot.docs[0].id;
-
-    const ref = existingId
-      ? this.firestore.doc(`playlists/${existingId}`)
-      : this.firestore.collection('playlists').doc();
-
-    await ref.set({
-      name,
-      description: null,
-      ownerUid: null,
-      type,
-      createdAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now(),
-    });
-    return ref.id;
-  }
-
-  private async upsertPlaylistSongs(playlistId: string, songIds: string[]): Promise<void> {
-    const songsCol = this.firestore.collection(`playlists/${playlistId}/songs`);
-    const existing = await songsCol.get();
-    const existingIds = new Set(existing.docs.map((d) => d.id));
-
-    let position = existing.docs.length;
-    for (const songId of songIds) {
-      if (existingIds.has(songId)) continue;
-      await songsCol.doc(songId).set({
-        position: position++,
-        addedAt: admin.firestore.Timestamp.now(),
-      });
+  private generateSearchTokens(title: string, artist: string): string[] {
+    const tokens = new Set<string>();
+    const text = `${title} ${artist}`.toLowerCase();
+    
+    const words = text.split(/\s+/);
+    for (const word of words) {
+      if (word.length >= 2) {
+        for (let i = 2; i <= word.length; i++) {
+          tokens.add(word.substring(0, i));
+        }
+      }
     }
+    
+    return Array.from(tokens);
+  }
+
+  private async saveProgress(progress: SyncProgress): Promise<void> {
+    progress.lastUpdatedAt = new Date();
+    await this.firestoreService.collection('sync_progress').doc(progress.id).set(progress);
+  }
+
+  private isQuotaError(error: any): boolean {
+    return error?.message?.includes('quota') || 
+           error?.response?.data?.error?.errors?.[0]?.reason === 'quotaExceeded';
+  }
+
+  private getQuotaResetTime(): Date {
+    // YouTube quota resets at midnight Pacific Time
+    const now = new Date();
+    const pacificTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    
+    // Set to next midnight PT
+    const resetTime = new Date(pacificTime);
+    resetTime.setHours(24, 0, 0, 0);
+    
+    // Convert back to local time
+    const offset = now.getTime() - pacificTime.getTime();
+    return new Date(resetTime.getTime() + offset);
   }
 }

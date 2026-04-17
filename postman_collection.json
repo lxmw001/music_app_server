@@ -364,7 +364,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"playlistId\": \"youtube-playlist-id\"\n}"
+							"raw": "{\n  \"genres\": [\"Rock\", \"Pop\", \"Jazz\"],\n  \"force\": false\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/sync/trigger",

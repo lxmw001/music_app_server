@@ -1,10 +1,11 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
+import { Controller, Get, Param, Query, Post, Body, UseGuards } from '@nestjs/common';
+import { OptionalAuthGuard } from '../auth/optional-auth.guard';
 import { SongsService } from './songs.service';
 import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
+import { SubmitSearchDto } from './dto/submit-search.dto';
 
-@UseGuards(FirebaseAuthGuard)
+@UseGuards(OptionalAuthGuard)
 @Controller('songs')
 export class SongsController {
   constructor(private readonly songsService: SongsService) {}
@@ -17,5 +18,10 @@ export class SongsController {
   @Get(':id')
   findById(@Param('id') id: string): Promise<SongResponseDto> {
     return this.songsService.findById(id);
+  }
+
+  @Post('submit-search')
+  submitSearch(@Body() dto: SubmitSearchDto): Promise<{ processed: number; message: string }> {
+    return this.songsService.submitSearch(dto);
   }
 }

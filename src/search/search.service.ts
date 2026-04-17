@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { FirestoreService } from '../firestore/firestore.service';
+import { GeminiService } from '../sync/gemini.service';
 import { CacheKeys } from '../cache/cache-keys';
 
 export interface SearchResults {
@@ -15,6 +16,7 @@ export interface SearchResults {
 export class SearchService {
   constructor(
     private readonly firestore: FirestoreService,
+    private readonly gemini: GeminiService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
@@ -29,7 +31,7 @@ export class SearchService {
     if (cached) return cached;
 
     const [songs, artists, albums, playlists] = await Promise.all([
-      this.searchCollection('songs', 'title', normalized),
+      this.searchSongs(normalized),
       this.searchCollection('artists', 'name', normalized),
       this.searchCollection('albums', 'title', normalized),
       this.searchCollection('playlists', 'name', normalized),
@@ -77,5 +79,68 @@ export class SearchService {
     }
 
     return results;
+  }
+
+  private async searchSongs(q: string): Promise<Array<{ id: string; [key: string]: unknown }>> {
+    const nameLowerField = 'nameLower';
+
+    // Search by title (prefix and substring)
+    const prefixSnapshot = await this.firestore
+      .collection('songs')
+      .where(nameLowerField, '>=', q)
+      .where(nameLowerField, '<=', q + '\uf8ff')
+      .get();
+
+    const tokenSnapshot = await this.firestore
+      .collection('songs')
+      .where('searchTokens', 'array-contains', q)
+      .get();
+
+    // Search by tags
+    const tagSnapshot = await this.firestore
+      .collection('songs')
+      .where('tags', 'array-contains', q)
+      .get();
+
+    // Search by artist name
+    const artistSnapshot = await this.firestore
+      .collection('songs')
+      .where('artistName', '>=', q)
+      .where('artistName', '<=', q + '\uf8ff')
+      .get();
+
+    // Merge and deduplicate
+    const seen = new Set<string>();
+    const results: Array<{ id: string; [key: string]: unknown }> = [];
+
+    for (const doc of [...prefixSnapshot.docs, ...tokenSnapshot.docs, ...tagSnapshot.docs, ...artistSnapshot.docs]) {
+      if (!seen.has(doc.id)) {
+        seen.add(doc.id);
+        results.push({ id: doc.id, ...doc.data() });
+      }
+    }
+
+    return results;
+  }
+
+  async aiSearch(query: string): Promise<any> {
+    return this.gemini.aiSearch(query, async (params) => {
+      const q = params.query.toLowerCase();
+      const songs = await this.searchSongs(q);
+      
+      // Filter by genre if specified
+      if (params.genre) {
+        return songs.filter((s: any) => s.genre?.toLowerCase() === params.genre.toLowerCase());
+      }
+      
+      // Filter by tags if specified
+      if (params.tags && params.tags.length > 0) {
+        return songs.filter((s: any) => 
+          params.tags.some((tag: string) => s.tags?.includes(tag.toLowerCase()))
+        );
+      }
+      
+      return songs;
+    });
   }
 }
