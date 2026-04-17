@@ -1,16 +1,18 @@
 import { GeminiService } from './gemini.service';
 import { RawYouTubeResult } from './interfaces/sync.interfaces';
 
-// Mock the entire @google/generative-ai module
-jest.mock('@google/generative-ai');
-
-import { GoogleGenerativeAI } from '@google/generative-ai';
-
-const MockGoogleGenerativeAI = GoogleGenerativeAI as jest.MockedClass<typeof GoogleGenerativeAI>;
+// Mock the entire @google/genai module
+jest.mock('@google/genai', () => ({
+  GoogleGenAI: jest.fn().mockImplementation(() => ({
+    models: {
+      generate: jest.fn()
+    }
+  }))
+}));
 
 function makeGenerateContent(text: string) {
   return jest.fn().mockResolvedValue({
-    response: { text: () => text },
+    text,
   });
 }
 

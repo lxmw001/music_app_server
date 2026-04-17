@@ -3,6 +3,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { BadRequestException } from '@nestjs/common';
 import { SearchService } from './search.service';
 import { FirestoreService } from '../firestore/firestore.service';
+import { GeminiService } from '../sync/gemini.service';
 import { createMockFirestore, createMockCache } from '../../test/shared/mock-factories';
 
 describe('SearchService', () => {
@@ -18,6 +19,7 @@ describe('SearchService', () => {
       providers: [
         SearchService,
         { provide: FirestoreService, useValue: mockFirestore },
+        { provide: GeminiService, useValue: { aiSearch: jest.fn() } },
         { provide: CACHE_MANAGER, useValue: mockCache },
       ],
     }).compile();

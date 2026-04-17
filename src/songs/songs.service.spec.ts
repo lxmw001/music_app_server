@@ -3,6 +3,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { NotFoundException } from '@nestjs/common';
 import { SongsService } from './songs.service';
 import { FirestoreService } from '../firestore/firestore.service';
+import { GeminiService } from '../sync/gemini.service';
 import {
   createMockFirestore,
   createMockCache,
@@ -22,6 +23,7 @@ describe('SongsService', () => {
       providers: [
         SongsService,
         { provide: FirestoreService, useValue: mockFirestore },
+        { provide: GeminiService, useValue: { cleanTitle: jest.fn() } },
         { provide: CACHE_MANAGER, useValue: mockCache },
       ],
     }).compile();

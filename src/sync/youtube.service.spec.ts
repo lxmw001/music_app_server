@@ -23,7 +23,7 @@ describe('YouTubeService', () => {
   it('returns [] and makes no HTTP calls when no API key is set', async () => {
     process.env.YOUTUBE_API_KEY = '';
     const service = new YouTubeService();
-    const result = await service.search('test query');
+    const result = await service.searchVideos('test query', 10);
 
     expect(result).toEqual([]);
     expect(mockedAxios.get).not.toHaveBeenCalled();
@@ -49,7 +49,7 @@ describe('YouTubeService', () => {
         },
       });
 
-    const result = await service.search('test query');
+    const result = await service.searchVideos('test query', 10);
 
     expect(mockedAxios.get).toHaveBeenCalledTimes(2);
     expect(result).toHaveLength(1);
@@ -73,7 +73,7 @@ describe('YouTubeService', () => {
       })
       .mockRejectedValueOnce(new Error('videos endpoint error'));
 
-    const result = await service.search('test query');
+    const result = await service.searchVideos('test query', 10);
 
     expect(result).toHaveLength(1);
     expect(result[0].videoId).toBe('vid-2');
@@ -88,7 +88,7 @@ describe('YouTubeService', () => {
 
     mockedAxios.get.mockResolvedValueOnce({ data: { items: [] } });
 
-    const result = await service.search('test query');
+    const result = await service.searchVideos('test query', 10);
 
     expect(result).toEqual([]);
     // No second call for durations
@@ -103,7 +103,7 @@ describe('YouTubeService', () => {
 
     mockedAxios.get.mockRejectedValueOnce(new Error('network error'));
 
-    const result = await service.search('test query');
+    const result = await service.searchVideos('test query', 10);
 
     expect(result).toEqual([]);
   });
