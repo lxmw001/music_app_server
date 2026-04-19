@@ -305,6 +305,12 @@ export class SongsService {
       const lastUpdated = data.lastUpdated?.toDate();
       const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 7 * 24 * 60 * 60 * 1000;
       
+      // Increment search count
+      await this.firestore.doc(`youtube_searches/${normalizedQuery}`).update({
+        searchCount: (data.searchCount || 0) + 1,
+        lastSearched: new Date(),
+      });
+      
       if (!isStale) {
         return this.enrichSearchResults(data);
       }
@@ -359,6 +365,8 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
         rank: i + 1,
         artistId: null,
       })),
+      searchCount: 1,
+      lastSearched: new Date(),
       lastUpdated: new Date(),
       createdAt: new Date(),
     };

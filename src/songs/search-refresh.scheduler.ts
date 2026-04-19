@@ -29,6 +29,8 @@ export class SearchRefreshScheduler {
       const snapshot = await this.firestore
         .collection('youtube_searches')
         .where('lastUpdated', '<', sevenDaysAgo)
+        .orderBy('lastUpdated', 'asc')
+        .orderBy('searchCount', 'desc') // Prioritize popular searches
         .limit(50) // Process 50 per day
         .get();
 
@@ -37,7 +39,7 @@ export class SearchRefreshScheduler {
       for (const doc of snapshot.docs) {
         const data = doc.data();
         try {
-          this.logger.log(`Refreshing search: ${data.query}`);
+          this.logger.log(`Refreshing search: "${data.query}" (searched ${data.searchCount || 0} times)`);
           await this.songsService.searchYouTube({ query: data.query });
           await this.delay(5000); // Rate limit: 5 sec between searches
         } catch (error) {
