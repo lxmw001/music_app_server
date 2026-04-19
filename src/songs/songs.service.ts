@@ -342,9 +342,9 @@ Rules:
 - Videos: Interviews, behind-scenes, live performances
 - Artists: Artist channels
 - IMPORTANT: Remove duplicates - if same song appears multiple times:
-  * Normalize artist names: "El Binomio de Oro de America" = "Binomio de Oro de America" = "Binomio de Oro"
+  * Recognize artist name variations (e.g., "El Binomio de Oro de America" = "Binomio de Oro")
   * Keep the version with shortest duration (avoids intros/outros)
-  * Use the most common/standard artist name format
+  * Use the shortest/cleanest artist name format (remove "de America", "de Colombia", etc.)
 
 Return JSON:
 {
@@ -533,8 +533,7 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
   private normalizeArtistName(artist: string): string {
     return artist
       .toLowerCase()
-      .replace(/^(el|la|los|las|the)\s+/i, '') // Remove articles
-      .replace(/\s+de\s+(oro|plata|america|colombia)/gi, '') // Remove common suffixes
+      .replace(/^(el|la|los|las|the)\s+/i, '') // Remove articles only
       .replace(/[^\w\s]/g, '')
       .trim();
   }
