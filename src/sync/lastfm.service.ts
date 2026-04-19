@@ -90,4 +90,43 @@ export class LastFmService {
       return null;
     }
   }
+
+  async getSimilarTracks(title: string, artist: string, limit: number = 30): Promise<Array<{ title: string; artist: string }>> {
+    if (!this.apiKey) {
+      this.logger.warn('Last.fm API key not set - cannot get similar tracks');
+      return [];
+    }
+
+    try {
+      this.logger.log(`Getting similar tracks from Last.fm for "${title}" by ${artist}`);
+      
+      const response = await axios.get(this.baseUrl, {
+        params: {
+          method: 'track.getSimilar',
+          api_key: this.apiKey,
+          artist,
+          track: title,
+          limit,
+          format: 'json',
+        },
+      });
+
+      const similarTracks = response.data?.similartracks?.track || [];
+      
+      if (!Array.isArray(similarTracks)) {
+        return [];
+      }
+
+      const results = similarTracks.map((track: any) => ({
+        title: track.name,
+        artist: track.artist?.name || '',
+      }));
+
+      this.logger.log(`Found ${results.length} similar tracks from Last.fm`);
+      return results;
+    } catch (error) {
+      this.logger.warn(`Failed to get similar tracks: ${error.message}`);
+      return [];
+    }
+  }
 }

@@ -538,6 +538,134 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
       .trim();
   }
 
+  async generatePlaylist(songId: string, limit: number = 30): Promise<SongResponseDto[]> {
+    // Get the seed song
+    const seedDoc = await this.firestore.doc(`songs/${songId}`).get();
+    if (!seedDoc.exists) {
+      throw new NotFoundException('Song not found');
+    }
+
+    const seedSong = seedDoc.data();
+    this.logger.log(`Generating playlist based on: ${seedSong.title} by ${seedSong.artistName}`);
+
+    const playlist: SongResponseDto[] = [];
+    const seenIds = new Set<string>([songId]);
+
+    // OPTION 1: Last.fm Similar Tracks (Primary)
+    const similarTracks = await this.lastfm.getSimilarTracks(
+      seedSong.title,
+      seedSong.artistName,
+      limit * 2 // Get more to account for missing matches
+    );
+
+    // Match Last.fm results with our DB
+    for (const track of similarTracks) {
+      if (playlist.length >= limit) break;
+
+      const snapshot = await this.firestore.collection('songs')
+        .where('nameLower', '==', track.title.toLowerCase())
+        .limit(5)
+        .get();
+
+      for (const doc of snapshot.docs) {
+        const songData = doc.data();
+        const artistMatch = this.normalizeArtistName(songData.artistName) === 
+                           this.normalizeArtistName(track.artist);
+
+        if (artistMatch && !seenIds.has(doc.id)) {
+          playlist.push(this.mapToSongResponse(doc.id, songData));
+          seenIds.add(doc.id);
+          break;
+        }
+      }
+    }
+
+    this.logger.log(`Matched ${playlist.length} songs from Last.fm recommendations`);
+
+    // OPTION 2: Fallback - Match by tags/genre from DB
+    if (playlist.length < limit) {
+      const needed = limit - playlist.length;
+      const tags = seedSong.tags || [];
+      const genre = seedSong.genre;
+
+      let query = this.firestore.collection('songs').limit(needed * 2);
+
+      if (tags.length > 0) {
+        query = query.where('tags', 'array-contains-any', tags.slice(0, 10));
+      } else if (genre) {
+        query = query.where('genre', '==', genre);
+      }
+
+      const snapshot = await query.get();
+      
+      for (const doc of snapshot.docs) {
+        if (playlist.length >= limit) break;
+        if (!seenIds.has(doc.id)) {
+          playlist.push(this.mapToSongResponse(doc.id, doc.data()));
+          seenIds.add(doc.id);
+        }
+      }
+
+      this.logger.log(`Added ${playlist.length - similarTracks.length} songs from DB fallback`);
+    }
+
+    /* OPTION 3: Gemini AI Alternative (commented out - can be enabled)
+    
+    if (playlist.length < limit) {
+      const prompt = `Given this song: "${seedSong.title}" by ${seedSong.artistName} (${seedSong.genre || 'unknown genre'}), 
+suggest ${limit - playlist.length} similar songs. Consider mood, tempo, genre, and artist style.
+Return ONLY JSON array: [{"title":"Song Title","artist":"Artist Name"}]`;
+
+      try {
+        const text = await this.gemini.generate(prompt);
+        const suggestions = JSON.parse(this.extractJson(text));
+        
+        for (const suggestion of suggestions) {
+          if (playlist.length >= limit) break;
+          
+          // Search DB for Gemini suggestions
+          const snapshot = await this.firestore.collection('songs')
+            .where('nameLower', '==', suggestion.title.toLowerCase())
+            .limit(3)
+            .get();
+          
+          for (const doc of snapshot.docs) {
+            const songData = doc.data();
+            if (this.normalizeArtistName(songData.artistName) === 
+                this.normalizeArtistName(suggestion.artist) && 
+                !seenIds.has(doc.id)) {
+              playlist.push(this.mapToSongResponse(doc.id, songData));
+              seenIds.add(doc.id);
+              break;
+            }
+          }
+        }
+        
+        this.logger.log(`Added ${playlist.length} songs using Gemini recommendations`);
+      } catch (error) {
+        this.logger.warn(`Gemini playlist generation failed: ${error.message}`);
+      }
+    }
+    */
+
+    return playlist;
+  }
+
+  private mapToSongResponse(id: string, data: any): SongResponseDto {
+    return {
+      id,
+      title: data.title,
+      artistId: data.artistId,
+      artistName: data.artistName,
+      albumId: data.albumId,
+      durationSeconds: data.durationSeconds,
+      coverImageUrl: data.coverImageUrl,
+      youtubeId: data.youtubeId,
+      genre: data.genre,
+      tags: data.tags || [],
+    };
+  }
+
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
     const songs = await Promise.all(
       (data.songs || []).map(async (s) => {

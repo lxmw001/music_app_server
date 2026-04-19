@@ -22,6 +22,11 @@ export class SongsController {
     return this.songsService.findById(id);
   }
 
+  @Post(':id/generate-playlist')
+  generatePlaylist(@Param('id') id: string, @Query('limit') limit?: number): Promise<SongResponseDto[]> {
+    return this.songsService.generatePlaylist(id, limit ? parseInt(limit as any) : 30);
+  }
+
   @Post('submit-search')
   submitSearch(@Body() dto: SubmitSearchDto): Promise<{ processed: number; message: string }> {
     return this.songsService.submitSearch(dto);
