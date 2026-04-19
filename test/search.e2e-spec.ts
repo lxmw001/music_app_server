@@ -61,9 +61,10 @@ describe('Search (e2e)', () => {
   });
 
   describe('GET /search?q=rock without auth', () => {
-    it('401', async () => {
+    it('200 (optional auth)', async () => {
+      mocks.firestore._collectionRef.get.mockResolvedValue({ docs: [], empty: true, size: 0 });
       const res = await request(app.getHttpServer()).get('/search?q=rock');
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(200);
     });
   });
 });

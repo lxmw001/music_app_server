@@ -10,6 +10,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { AppModule } from '../../src/app.module';
 import { FirebaseAuthGuard } from '../../src/auth/firebase-auth.guard';
+import { OptionalAuthGuard } from '../../src/auth/optional-auth.guard';
 import { AdminGuard } from '../../src/sync/admin.guard';
 import { FirebaseAdminService } from '../../src/auth/firebase-admin.service';
 import { FirestoreService } from '../../src/firestore/firestore.service';
@@ -31,6 +32,17 @@ class MockFirebaseAuthGuard implements CanActivate {
     if (!header) throw new UnauthorizedException();
     req.user = JSON.parse(header);
     return true;
+  }
+}
+
+class MockOptionalAuthGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const req = context.switchToHttp().getRequest();
+    const header = req.headers['x-test-user'];
+    if (header) {
+      req.user = JSON.parse(header);
+    }
+    return true; // Always allow
   }
 }
 
@@ -76,6 +88,8 @@ export async function createTestApp(overrides?: {
     .useValue(mocks.youtube)
     .overrideGuard(FirebaseAuthGuard)
     .useClass(MockFirebaseAuthGuard)
+    .overrideGuard(OptionalAuthGuard)
+    .useClass(MockOptionalAuthGuard)
     .overrideGuard(AdminGuard)
     .useClass(MockAdminGuard)
     .compile();

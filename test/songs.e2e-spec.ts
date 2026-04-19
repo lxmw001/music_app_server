@@ -58,9 +58,10 @@ describe('Songs (e2e)', () => {
       });
     });
 
-    it('401 when no auth header', async () => {
+    it('200 when no auth header (optional auth)', async () => {
+      mocks.firestore._docRef.get.mockResolvedValue(makeSongDoc());
       const res = await request(app.getHttpServer()).get('/songs/song-1');
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(200);
     });
   });
 

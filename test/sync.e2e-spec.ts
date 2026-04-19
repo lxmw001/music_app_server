@@ -55,7 +55,10 @@ class MockAdminGuard implements CanActivate {
 describe('Sync (e2e)', () => {
   let app: INestApplication;
   const mockSyncService = {
-    runSync: jest.fn().mockResolvedValue(undefined),
+    startSync: jest.fn().mockResolvedValue({ syncId: 'test-sync-id', message: 'Sync started' }),
+    getProgress: jest.fn(),
+    resumeSync: jest.fn(),
+    incrementalSync: jest.fn(),
   };
 
   beforeAll(async () => {
@@ -91,24 +94,24 @@ describe('Sync (e2e)', () => {
   });
 
   beforeEach(() => {
-    mockSyncService.runSync.mockClear();
-    mockSyncService.runSync.mockResolvedValue(undefined);
+    mockSyncService.startSync.mockClear();
+    mockSyncService.startSync.mockResolvedValue({ syncId: 'test-sync-id', message: 'Sync started' });
   });
 
-  describe('POST /sync/trigger', () => {
-    it('202 with { message: "Sync triggered" } for admin user', async () => {
+  describe('POST /sync/start', () => {
+    it('201 with syncId for admin user', async () => {
       const res = await request(app.getHttpServer())
-        .post('/sync/trigger')
+        .post('/sync/start')
         .set('x-test-user', ADMIN_USER)
         .send({});
 
-      expect(res.status).toBe(202);
-      expect(res.body).toEqual({ message: 'Sync triggered' });
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('syncId');
     });
 
     it('403 for non-admin user', async () => {
       const res = await request(app.getHttpServer())
-        .post('/sync/trigger')
+        .post('/sync/start')
         .set('x-test-user', REGULAR_USER)
         .send({});
 
@@ -117,30 +120,28 @@ describe('Sync (e2e)', () => {
 
     it('401 without auth', async () => {
       const res = await request(app.getHttpServer())
-        .post('/sync/trigger')
+        .post('/sync/start')
         .send({});
 
       expect(res.status).toBe(401);
     });
 
-    it('calls runSync with { genres, force } when provided', async () => {
+    it('calls startSync with genres and country when provided', async () => {
       await request(app.getHttpServer())
-        .post('/sync/trigger')
+        .post('/sync/start')
         .set('x-test-user', ADMIN_USER)
-        .send({ genres: ['Rock'], force: true });
+        .send({ genres: ['Rock'], country: 'US' });
 
-      expect(mockSyncService.runSync).toHaveBeenCalledWith(
-        expect.objectContaining({ genres: ['Rock'], force: true }),
-      );
+      expect(mockSyncService.startSync).toHaveBeenCalledWith(['Rock'], 'US');
     });
 
-    it('calls runSync when body is empty', async () => {
+    it('calls startSync when body is empty', async () => {
       await request(app.getHttpServer())
-        .post('/sync/trigger')
+        .post('/sync/start')
         .set('x-test-user', ADMIN_USER)
         .send({});
 
-      expect(mockSyncService.runSync).toHaveBeenCalled();
+      expect(mockSyncService.startSync).toHaveBeenCalled();
     });
   });
 });
