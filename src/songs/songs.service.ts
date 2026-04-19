@@ -5,7 +5,7 @@ import * as admin from 'firebase-admin';
 import { FirestoreService } from '../firestore/firestore.service';
 import { GeminiService } from '../sync/gemini.service';
 import { YouTubeService } from '../sync/youtube.service';
-import { SpotifyService } from '../sync/spotify.service';
+import { LastFmService } from '../sync/lastfm.service';
 import { CacheKeys } from '../cache/cache-keys';
 import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
@@ -37,7 +37,7 @@ export class SongsService {
     private readonly firestore: FirestoreService,
     private readonly gemini: GeminiService,
     private readonly youtube: YouTubeService,
-    private readonly spotify: SpotifyService,
+    private readonly lastfm: LastFmService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
@@ -341,6 +341,7 @@ Rules:
 - Mixes: Playlists, compilations, DJ sets
 - Videos: Interviews, behind-scenes, live performances
 - Artists: Artist channels
+- IMPORTANT: Remove duplicates - if same song appears multiple times (different videos), keep only the first one
 
 Return JSON:
 {
@@ -354,6 +355,18 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
 
     const text = await this.gemini.generate(prompt);
     const classified = JSON.parse(this.extractJson(text));
+    
+    // Deduplicate songs by title+artist (backup in case Gemini doesn't)
+    const seenSongs = new Map<string, any>();
+    const uniqueSongs = [];
+    for (const song of classified.songs || []) {
+      const key = `${song.title.toLowerCase()}-${song.artistName.toLowerCase()}`;
+      if (!seenSongs.has(key)) {
+        seenSongs.set(key, song);
+        uniqueSongs.push(song);
+      }
+    }
+    classified.songs = uniqueSongs;
     
     // Save songs to songs collection (not in search cache)
     const songRefs = [];
@@ -369,8 +382,8 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
       if (!existing.empty) {
         songRefs.push({ songId: existing.docs[0].id, rank: index + 1, ...song });
       } else {
-        // Enrich with Spotify metadata
-        const spotifyData = await this.spotify.searchTrack(song.title, song.artistName);
+        // Enrich with Last.fm metadata
+        const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
         
         // Create new song
         const songData = {
@@ -378,14 +391,14 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
           artistName: song.artistName,
           youtubeId: song.videoId,
           nameLower: song.title.toLowerCase(),
-          coverImageUrl: spotifyData?.albumArt || original?.thumbnailUrl || '',
+          coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
           durationSeconds: original?.durationSeconds || 0,
-          album: spotifyData?.album || null,
-          releaseDate: spotifyData?.releaseDate || null,
-          genres: spotifyData?.genres || [],
-          spotifyId: spotifyData?.spotifyId || null,
-          popularity: spotifyData?.popularity || 0,
-          tags: spotifyData?.genres || [],
+          album: metadata?.album || null,
+          releaseDate: metadata?.releaseDate || null,
+          genres: metadata?.tags || [],
+          listeners: metadata?.listeners || 0,
+          mbid: metadata?.mbid || null,
+          tags: metadata?.tags || [],
           searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -526,8 +539,8 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
               tags: songData.tags,
               album: songData.album,
               releaseDate: songData.releaseDate,
-              spotifyId: songData.spotifyId,
-              popularity: songData.popularity,
+              listeners: songData.listeners,
+              mbid: songData.mbid,
             };
           }
         }

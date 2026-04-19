@@ -12,8 +12,8 @@ export class SearchSongDto {
   tags?: string[];
   album?: string;
   releaseDate?: string;
-  spotifyId?: string;
-  popularity?: number;
+  listeners?: number;
+  mbid?: string;
 }
 
 export class SearchMixDto {

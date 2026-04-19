@@ -68,7 +68,17 @@ export class SpotifyService {
         popularity: track.popularity,
       };
     } catch (error) {
-      this.logger.warn(`Spotify search failed for "${title}" by ${artist}:`, error);
+      // Silently fail - Spotify enrichment is optional
+      // Common causes: Development Mode restrictions, rate limits, network issues
+      if (error?.statusCode === 403) {
+        this.logger.debug(`Spotify in Development Mode - skipping enrichment for "${title}"`);
+      } else {
+        const errorDetails = {
+          statusCode: error?.statusCode,
+          body: error?.body,
+        };
+        this.logger.warn(`Spotify search failed for "${title}" by ${artist}:`, errorDetails);
+      }
       return null;
     }
   }
@@ -84,7 +94,7 @@ export class SpotifyService {
       this.tokenExpiresAt = Date.now() + data.body.expires_in * 1000 - 60000; // Refresh 1 min early
       this.logger.log('Spotify access token refreshed');
     } catch (error) {
-      this.logger.error('Failed to get Spotify token:', error);
+      this.logger.error('Failed to get Spotify token - enrichment disabled');
       throw error;
     }
   }

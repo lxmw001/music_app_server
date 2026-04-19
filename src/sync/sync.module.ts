@@ -7,13 +7,13 @@ import { SyncService } from './sync.service';
 import { SyncScheduler } from './sync.scheduler';
 import { GeminiService } from './gemini.service';
 import { YouTubeService } from './youtube.service';
-import { SpotifyService } from './spotify.service';
+import { LastFmService } from './lastfm.service';
 import { AdminGuard } from './admin.guard';
 
 @Module({
   imports: [FirestoreModule, AuthModule, StorageModule],
   controllers: [SyncController],
-  providers: [SyncService, SyncScheduler, GeminiService, YouTubeService, SpotifyService, AdminGuard],
-  exports: [GeminiService, YouTubeService, SpotifyService],
+  providers: [SyncService, SyncScheduler, GeminiService, YouTubeService, LastFmService, AdminGuard],
+  exports: [GeminiService, YouTubeService, LastFmService],
 })
 export class SyncModule {}
