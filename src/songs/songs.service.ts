@@ -298,15 +298,28 @@ export class SongsService {
   async searchYouTube(dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
     const normalizedQuery = this.normalizeSearchQuery(dto.query);
     
-    // Check cache
-    const cached = await this.firestore.doc(`youtube_searches/${normalizedQuery}`).get();
+    // Check exact cache match
+    let cached = await this.firestore.doc(`youtube_searches/${normalizedQuery}`).get();
+    
+    // If no exact match, try fuzzy search
+    if (!cached.exists) {
+      const fuzzyMatch = await this.findSimilarSearch(dto.query);
+      if (fuzzyMatch) {
+        cached = fuzzyMatch;
+        // Add this query as a variation
+        await this.firestore.doc(`youtube_searches/${fuzzyMatch.id}`).update({
+          variations: admin.firestore.FieldValue.arrayUnion(dto.query.toLowerCase()),
+        });
+      }
+    }
+    
     if (cached.exists) {
       const data = cached.data();
       const lastUpdated = data.lastUpdated?.toDate();
       const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 7 * 24 * 60 * 60 * 1000;
       
       // Increment search count
-      await this.firestore.doc(`youtube_searches/${normalizedQuery}`).update({
+      await this.firestore.doc(`youtube_searches/${cached.id}`).update({
         searchCount: (data.searchCount || 0) + 1,
         lastSearched: new Date(),
       });
@@ -377,6 +390,7 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
     const searchData = {
       query: dto.query,
       normalizedQuery,
+      variations: [dto.query.toLowerCase()],
       songs: songRefs.map(s => ({
         youtubeId: s.videoId,
         rank: s.rank,
@@ -408,6 +422,67 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
     await this.firestore.doc(`youtube_searches/${normalizedQuery}`).set(searchData);
     
     return this.enrichSearchResults(searchData);
+  }
+
+  private async findSimilarSearch(query: string): Promise<any> {
+    const queryLower = query.toLowerCase();
+    
+    // Get recent searches (limit 100 for performance)
+    const snapshot = await this.firestore.collection('youtube_searches')
+      .orderBy('lastSearched', 'desc')
+      .limit(100)
+      .get();
+    
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      const variations = data.variations || [data.query?.toLowerCase()];
+      
+      // Check if any variation is similar
+      for (const variation of variations) {
+        if (this.isSimilar(queryLower, variation)) {
+          return doc;
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  private isSimilar(str1: string, str2: string): boolean {
+    // Levenshtein distance threshold
+    const distance = this.levenshteinDistance(str1, str2);
+    const maxLength = Math.max(str1.length, str2.length);
+    const similarity = 1 - distance / maxLength;
+    
+    return similarity >= 0.85; // 85% similar
+  }
+
+  private levenshteinDistance(str1: string, str2: string): number {
+    const matrix = [];
+    
+    for (let i = 0; i <= str2.length; i++) {
+      matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= str1.length; j++) {
+      matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= str2.length; i++) {
+      for (let j = 1; j <= str1.length; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    
+    return matrix[str2.length][str1.length];
   }
 
   private normalizeSearchQuery(query: string): string {
