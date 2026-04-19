@@ -47,12 +47,14 @@ export class GeminiService {
   async generate(prompt: string): Promise<string> {
     if (!this.genAI) throw new Error('Gemini API not initialized');
     
-    const model = this.genAI.getGenerativeModel({ model: this.modelName });
     const result = await this.callWithRateLimit(() => 
-      model.generateContent(prompt)
+      this.genAI.models.generateContent({
+        model: this.modelName,
+        contents: prompt,
+      })
     );
     
-    return result.response.text();
+    return result.text;
   }
 
   async getPopularGenres(country?: string): Promise<string[]> {
