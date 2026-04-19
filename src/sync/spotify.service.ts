@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import SpotifyWebApi from 'spotify-web-api-node';
+import * as SpotifyWebApi from 'spotify-web-api-node';
 
 export interface SpotifyTrackMetadata {
   spotifyId: string;
@@ -21,7 +21,7 @@ export class SpotifyService {
     const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
 
     if (clientId && clientSecret) {
-      this.spotify = new SpotifyWebApi({
+      this.spotify = new (SpotifyWebApi as any)({
         clientId,
         clientSecret,
       });
