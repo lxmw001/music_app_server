@@ -341,7 +341,10 @@ Rules:
 - Mixes: Playlists, compilations, DJ sets
 - Videos: Interviews, behind-scenes, live performances
 - Artists: Artist channels
-- IMPORTANT: Remove duplicates - if same song appears multiple times (different videos), keep only the first one
+- IMPORTANT: Remove duplicates - if same song appears multiple times:
+  * Normalize artist names: "El Binomio de Oro de America" = "Binomio de Oro de America" = "Binomio de Oro"
+  * Keep the version with shortest duration (avoids intros/outros)
+  * Use the most common/standard artist name format
 
 Return JSON:
 {
@@ -351,19 +354,28 @@ Return JSON:
   "artists": [{"name":"Artist"}]
 }
 
-Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle })))}`;
+Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
 
     const text = await this.gemini.generate(prompt);
     const classified = JSON.parse(this.extractJson(text));
     
     // Deduplicate songs by title+artist (backup in case Gemini doesn't)
+    // Prefer shorter durations (avoids intros/outros)
     const seenSongs = new Map<string, any>();
     const uniqueSongs = [];
     for (const song of classified.songs || []) {
-      const key = `${song.title.toLowerCase()}-${song.artistName.toLowerCase()}`;
-      if (!seenSongs.has(key)) {
-        seenSongs.set(key, song);
+      const key = `${song.title.toLowerCase()}-${this.normalizeArtistName(song.artistName)}`;
+      const existing = seenSongs.get(key);
+      const currentDuration = results.find(r => r.videoId === song.videoId)?.durationSeconds || 999999;
+      
+      if (!existing) {
+        seenSongs.set(key, { song, duration: currentDuration });
         uniqueSongs.push(song);
+      } else if (currentDuration < existing.duration) {
+        // Replace with shorter version
+        const index = uniqueSongs.indexOf(existing.song);
+        uniqueSongs[index] = song;
+        seenSongs.set(key, { song, duration: currentDuration });
       }
     }
     classified.songs = uniqueSongs;
@@ -516,6 +528,15 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
       .replace(/[\u0300-\u036f]/g, '') // Remove accents
       .replace(/[^\w\s]/g, '') // Remove special chars
       .replace(/\s+/g, '-'); // Replace spaces with dash
+  }
+
+  private normalizeArtistName(artist: string): string {
+    return artist
+      .toLowerCase()
+      .replace(/^(el|la|los|las|the)\s+/i, '') // Remove articles
+      .replace(/\s+de\s+(oro|plata|america|colombia)/gi, '') // Remove common suffixes
+      .replace(/[^\w\s]/g, '')
+      .trim();
   }
 
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
