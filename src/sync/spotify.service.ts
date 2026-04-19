@@ -68,8 +68,7 @@ export class SpotifyService {
         popularity: track.popularity,
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : JSON.stringify(error);
-      this.logger.warn(`Spotify search failed for "${title}" by ${artist}: ${errorMsg}`);
+      this.logger.warn(`Spotify search failed for "${title}" by ${artist}:`, error);
       return null;
     }
   }
@@ -85,8 +84,7 @@ export class SpotifyService {
       this.tokenExpiresAt = Date.now() + data.body.expires_in * 1000 - 60000; // Refresh 1 min early
       this.logger.log('Spotify access token refreshed');
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : JSON.stringify(error);
-      this.logger.error(`Failed to get Spotify token: ${errorMsg}`);
+      this.logger.error('Failed to get Spotify token:', error);
       throw error;
     }
   }
