@@ -13,6 +13,6 @@ import { AdminGuard } from './admin.guard';
   imports: [FirestoreModule, AuthModule, StorageModule],
   controllers: [SyncController],
   providers: [SyncService, SyncScheduler, GeminiService, YouTubeService, AdminGuard],
-  exports: [GeminiService],
+  exports: [GeminiService, YouTubeService],
 })
 export class SyncModule {}

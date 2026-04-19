@@ -4,10 +4,13 @@ import { Cache } from 'cache-manager';
 import * as admin from 'firebase-admin';
 import { FirestoreService } from '../firestore/firestore.service';
 import { GeminiService } from '../sync/gemini.service';
+import { YouTubeService } from '../sync/youtube.service';
 import { CacheKeys } from '../cache/cache-keys';
 import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
 import { SubmitSearchDto } from './dto/submit-search.dto';
+import { SearchYouTubeDto } from './dto/search-youtube.dto';
+import { SearchYouTubeResponseDto } from './dto/search-youtube-response.dto';
 
 interface SongDocument {
   title: string;
@@ -32,6 +35,7 @@ export class SongsService {
   constructor(
     private readonly firestore: FirestoreService,
     private readonly gemini: GeminiService,
+    private readonly youtube: YouTubeService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
@@ -289,5 +293,131 @@ export class SongsService {
     }
     
     return text;
+  }
+
+  async searchYouTube(dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
+    const normalizedQuery = dto.query.toLowerCase().trim().replace(/[^\w\s]/g, '');
+    
+    // Check cache
+    const cached = await this.firestore.doc(`youtube_searches/${normalizedQuery}`).get();
+    if (cached.exists) {
+      const data = cached.data();
+      const lastUpdated = data.lastUpdated?.toDate();
+      const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 7 * 24 * 60 * 60 * 1000;
+      
+      if (!isStale) {
+        return this.enrichSearchResults(data);
+      }
+    }
+    
+    // YouTube search
+    const results = await this.youtube.searchVideos(dto.query, 20);
+    
+    // Gemini classification
+    const prompt = `Classify YouTube results into: songs, mixes, videos, artists.
+Rules:
+- Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist.
+- Mixes: Playlists, compilations, DJ sets
+- Videos: Interviews, behind-scenes, live performances
+- Artists: Artist channels
+
+Return JSON:
+{
+  "songs": [{"title":"Song","artistName":"Artist","videoId":"abc"}],
+  "mixes": [{"title":"Mix","videoId":"xyz"}],
+  "videos": [{"title":"Video","videoId":"def"}],
+  "artists": [{"name":"Artist"}]
+}
+
+Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle })))}`;
+
+    const text = await this.gemini.generate(prompt);
+    const classified = JSON.parse(this.extractJson(text));
+    
+    // Save to Firestore
+    const searchData = {
+      query: dto.query,
+      songs: (classified.songs || []).map((s, i) => ({
+        ...s,
+        rank: i + 1,
+        songId: null,
+        thumbnailUrl: results.find(r => r.videoId === s.videoId)?.thumbnailUrl || '',
+        durationSeconds: results.find(r => r.videoId === s.videoId)?.durationSeconds || 0,
+      })),
+      mixes: (classified.mixes || []).map((m, i) => ({
+        ...m,
+        rank: i + 1,
+        thumbnailUrl: results.find(r => r.videoId === m.videoId)?.thumbnailUrl || '',
+      })),
+      videos: (classified.videos || []).map((v, i) => ({
+        ...v,
+        rank: i + 1,
+        thumbnailUrl: results.find(r => r.videoId === v.videoId)?.thumbnailUrl || '',
+      })),
+      artists: (classified.artists || []).map((a, i) => ({
+        ...a,
+        rank: i + 1,
+        artistId: null,
+      })),
+      lastUpdated: new Date(),
+      createdAt: new Date(),
+    };
+    
+    await this.firestore.doc(`youtube_searches/${normalizedQuery}`).set(searchData);
+    
+    return this.enrichSearchResults(searchData);
+  }
+
+  private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
+    const songs = await Promise.all(
+      (data.songs || []).map(async (s) => {
+        if (s.songId) {
+          const doc = await this.firestore.doc(`songs/${s.songId}`).get();
+          if (doc.exists) {
+            const songData = doc.data();
+            return {
+              id: doc.id,
+              title: songData.title,
+              artistName: songData.artistName,
+              youtubeId: s.youtubeId,
+              thumbnailUrl: songData.coverImageUrl || s.thumbnailUrl,
+              durationSeconds: songData.durationSeconds,
+              rank: s.rank,
+              artistId: songData.artistId,
+              albumId: songData.albumId,
+              genre: songData.genre,
+              tags: songData.tags,
+            };
+          }
+        }
+        return s;
+      })
+    );
+
+    const artists = await Promise.all(
+      (data.artists || []).map(async (a) => {
+        if (a.artistId) {
+          const doc = await this.firestore.doc(`artists/${a.artistId}`).get();
+          if (doc.exists) {
+            const artistData = doc.data();
+            return {
+              id: doc.id,
+              name: artistData.name,
+              imageUrl: artistData.imageUrl,
+              followerCount: artistData.followerCount,
+              rank: a.rank,
+            };
+          }
+        }
+        return a;
+      })
+    );
+
+    return {
+      songs,
+      mixes: data.mixes || [],
+      videos: data.videos || [],
+      artists,
+    };
   }
 }

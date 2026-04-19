@@ -4,6 +4,8 @@ import { SongsService } from './songs.service';
 import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
 import { SubmitSearchDto } from './dto/submit-search.dto';
+import { SearchYouTubeDto } from './dto/search-youtube.dto';
+import { SearchYouTubeResponseDto } from './dto/search-youtube-response.dto';
 
 @UseGuards(OptionalAuthGuard)
 @Controller('songs')
@@ -23,6 +25,11 @@ export class SongsController {
   @Post('submit-search')
   submitSearch(@Body() dto: SubmitSearchDto): Promise<{ processed: number; message: string }> {
     return this.songsService.submitSearch(dto);
+  }
+
+  @Post('search-youtube')
+  searchYouTube(@Body() dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
+    return this.songsService.searchYouTube(dto);
   }
 
   @Post('clean-youtube-results')
