@@ -55,17 +55,6 @@ export class GeminiService {
     return result.response.text();
   }
 
-  private async generate(prompt: string): Promise<string> {
-    if (!this.genAI) throw new Error('GenAI not initialized');
-    const response = await this.callWithRateLimit(() => 
-      this.genAI.models.generateContent({
-        model: this.modelName,
-        contents: prompt
-      })
-    );
-    return response.text;
-  }
-
   async getPopularGenres(country?: string): Promise<string[]> {
     try {
       const countryContext = country ? ` most listened to in ${country}` : '';
