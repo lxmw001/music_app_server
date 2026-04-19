@@ -296,7 +296,7 @@ export class SongsService {
   }
 
   async searchYouTube(dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
-    const normalizedQuery = dto.query.toLowerCase().trim().replace(/[^\w\s]/g, '');
+    const normalizedQuery = this.normalizeSearchQuery(dto.query);
     
     // Check cache
     const cached = await this.firestore.doc(`youtube_searches/${normalizedQuery}`).get();
@@ -340,15 +340,49 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
     const text = await this.gemini.generate(prompt);
     const classified = JSON.parse(this.extractJson(text));
     
-    // Save to Firestore
+    // Save songs to songs collection (not in search cache)
+    const songRefs = [];
+    for (const [index, song] of (classified.songs || []).entries()) {
+      const original = results.find(r => r.videoId === song.videoId);
+      
+      // Check if song already exists by youtubeId
+      const existing = await this.firestore.collection('songs')
+        .where('youtubeId', '==', song.videoId)
+        .limit(1)
+        .get();
+      
+      if (!existing.empty) {
+        songRefs.push({ songId: existing.docs[0].id, rank: index + 1, ...song });
+      } else {
+        // Create new song
+        const songData = {
+          title: song.title,
+          artistName: song.artistName,
+          youtubeId: song.videoId,
+          nameLower: song.title.toLowerCase(),
+          coverImageUrl: original?.thumbnailUrl || '',
+          durationSeconds: original?.durationSeconds || 0,
+          tags: [],
+          searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        
+        const docRef = await this.firestore.collection('songs').add(songData);
+        songRefs.push({ songId: docRef.id, rank: index + 1, ...song });
+      }
+    }
+    
+    // Save to search cache (only references)
     const searchData = {
       query: dto.query,
-      songs: (classified.songs || []).map((s, i) => ({
-        ...s,
-        rank: i + 1,
-        songId: null,
-        thumbnailUrl: results.find(r => r.videoId === s.videoId)?.thumbnailUrl || '',
-        durationSeconds: results.find(r => r.videoId === s.videoId)?.durationSeconds || 0,
+      normalizedQuery,
+      songs: songRefs.map(s => ({
+        youtubeId: s.videoId,
+        rank: s.rank,
+        songId: s.songId,
+        title: s.title,
+        artistName: s.artistName,
       })),
       mixes: (classified.mixes || []).map((m, i) => ({
         ...m,
@@ -374,6 +408,16 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
     await this.firestore.doc(`youtube_searches/${normalizedQuery}`).set(searchData);
     
     return this.enrichSearchResults(searchData);
+  }
+
+  private normalizeSearchQuery(query: string): string {
+    return query
+      .toLowerCase()
+      .trim()
+      .normalize('NFD') // Decompose accents
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[^\w\s]/g, '') // Remove special chars
+      .replace(/\s+/g, '-'); // Replace spaces with dash
   }
 
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
