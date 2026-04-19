@@ -395,7 +395,13 @@ export class SyncService {
 
   private async saveProgress(progress: SyncProgress): Promise<void> {
     progress.lastUpdatedAt = new Date();
-    await this.firestoreService.collection('sync_progress').doc(progress.id).set(progress);
+    
+    // Remove undefined fields for Firestore
+    const cleanProgress = Object.fromEntries(
+      Object.entries(progress).filter(([_, v]) => v !== undefined)
+    );
+    
+    await this.firestoreService.collection('sync_progress').doc(progress.id).set(cleanProgress);
   }
 
   private isQuotaError(error: any): boolean {
