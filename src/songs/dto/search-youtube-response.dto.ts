@@ -4,7 +4,7 @@ export class SearchSongDto {
   artistName: string;
   youtubeId: string;
   thumbnailUrl: string;
-  durationSeconds: number;
+  duration: number;
   rank: number;
   artistId?: string;
   albumId?: string;
