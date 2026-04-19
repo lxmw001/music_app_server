@@ -24,4 +24,9 @@ export class SongsController {
   submitSearch(@Body() dto: SubmitSearchDto): Promise<{ processed: number; message: string }> {
     return this.songsService.submitSearch(dto);
   }
+
+  @Post('clean-youtube-results')
+  cleanYouTubeResults(@Body() body: { results: any[] }) {
+    return this.songsService.cleanYouTubeResults(body.results);
+  }
 }

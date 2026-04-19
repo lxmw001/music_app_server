@@ -44,6 +44,17 @@ export class GeminiService {
     return fn();
   }
 
+  async generate(prompt: string): Promise<string> {
+    if (!this.genAI) throw new Error('Gemini API not initialized');
+    
+    const model = this.genAI.getGenerativeModel({ model: this.modelName });
+    const result = await this.callWithRateLimit(() => 
+      model.generateContent(prompt)
+    );
+    
+    return result.response.text();
+  }
+
   private async generate(prompt: string): Promise<string> {
     if (!this.genAI) throw new Error('GenAI not initialized');
     const response = await this.callWithRateLimit(() => 

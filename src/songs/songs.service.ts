@@ -190,4 +190,104 @@ export class SongsService {
     
     return Array.from(tokens);
   }
+
+  async cleanYouTubeResults(results: Array<{
+    videoId: string;
+    title: string;
+    channelTitle: string;
+    thumbnailUrl?: string;
+    durationSeconds?: number;
+  }>): Promise<any[]> {
+    const videoIds = results.map(r => r.videoId);
+    
+    // Check which songs already exist in DB
+    const existingSongs = new Map();
+    const chunks = this.chunkArray(videoIds, 10);
+    
+    for (const chunk of chunks) {
+      const snapshot = await this.firestore.collection('songs')
+        .where('youtubeId', 'in', chunk)
+        .get();
+      
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        existingSongs.set(data.youtubeId, {
+          id: doc.id,
+          title: data.title,
+          artistName: data.artistName,
+          youtubeId: data.youtubeId,
+          thumbnailUrl: data.coverImageUrl,
+          durationSeconds: data.durationSeconds,
+          tags: data.tags || [],
+        });
+      });
+    }
+    
+    // Separate cached vs new
+    const cached = [];
+    const needsCleaning = [];
+    
+    for (const result of results) {
+      if (existingSongs.has(result.videoId)) {
+        cached.push(existingSongs.get(result.videoId));
+      } else {
+        needsCleaning.push(result);
+      }
+    }
+    
+    // Clean new results
+    const cleaned = [];
+    if (needsCleaning.length > 0) {
+      const prompt = `Clean YouTube music results. Extract song title and artist. Remove: (Official Video), (Lyrics), [Official], VEVO, etc. Fix caps. Return JSON: [{"title":"Song","artistName":"Artist","videoId":"abc"}]. Input: ${JSON.stringify(needsCleaning.map(r => ({ videoId: r.videoId, title: r.title })))}`;
+
+      try {
+        const text = await this.gemini.generate(prompt);
+        const parsed = JSON.parse(this.extractJson(text));
+        
+        for (const item of parsed) {
+          const original = needsCleaning.find(r => r.videoId === item.videoId);
+          const songData = {
+            title: item.title,
+            artistName: item.artistName,
+            youtubeId: item.videoId,
+            nameLower: item.title.toLowerCase(),
+            coverImageUrl: original?.thumbnailUrl || '',
+            durationSeconds: original?.durationSeconds || 0,
+            tags: [],
+            searchTokens: this.generateSearchTokens(item.title + ' ' + item.artistName),
+            createdAt: new Date(),
+          };
+          
+          const docRef = await this.firestore.collection('songs').add(songData);
+          cleaned.push({ id: docRef.id, ...songData });
+        }
+      } catch (error) {
+        this.logger.error(`Clean failed: ${error.message}`);
+      }
+    }
+    
+    return [...cached, ...cleaned];
+  }
+
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  }
+
+  private extractJson(text: string): string {
+    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) return match[1].trim();
+    
+    const start = text.search(/[\[{]/);
+    const end = text.lastIndexOf(text[start] === '[' ? ']' : '}');
+    
+    if (start !== -1 && end !== -1 && end > start) {
+      return text.slice(start, end + 1);
+    }
+    
+    return text;
+  }
 }
