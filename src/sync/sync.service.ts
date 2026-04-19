@@ -150,7 +150,7 @@ export class SyncService {
         // Get or reuse cached artist list
         let artists = progress.artistsByGenre[genre];
         if (!artists) {
-          artists = await this.geminiService.getArtistsForGenre(genre);
+          artists = await this.geminiService.getArtistsForGenre(genre, progress.country);
           progress.artistsByGenre[genre] = artists;
           progress.totalArtists += artists.length;
           await this.saveProgress(progress);
@@ -188,7 +188,7 @@ export class SyncService {
                   artistName: artist.name,
                 }));
 
-                const cleaned = await this.geminiService.cleanAndDeduplicate(rawResults);
+                const cleaned = await this.geminiService.cleanAndDeduplicate(rawResults, progress.country);
                 
                 for (const song of cleaned) {
                   await this.saveSong(song, artistDoc.id, genre);
@@ -369,6 +369,7 @@ export class SyncService {
       genres: [genre],
       artistRank: song.artistRank,
       durationSeconds: song.durationSeconds || 0,
+      tags: song.tags || [],
       searchTokens: this.generateSearchTokens(song.title, song.artistName),
       createdAt: new Date(),
     };

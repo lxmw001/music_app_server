@@ -27,6 +27,7 @@ export interface CleanedSongResult {
   youtubeId: string;
   thumbnailUrl?: string;
   durationSeconds?: number;
+  tags?: string[];
 }
 
 export interface SyncRequestDto {

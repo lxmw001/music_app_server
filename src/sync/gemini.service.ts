@@ -75,9 +75,10 @@ export class GeminiService {
     return ['Rock', 'Pop', 'Hip-Hop', 'Jazz', 'Classical', 'R&B', 'Electronic', 'Country'];
   }
 
-  async getArtistsForGenre(genre: string): Promise<GeminiArtistResult[]> {
+  async getArtistsForGenre(genre: string, country?: string): Promise<GeminiArtistResult[]> {
     try {
-      const prompt = `List the top 20 most popular ${genre} artists. Return ONLY a JSON array with objects having fields: name (string), rank (number 1-20, unique), topSongs (array of up to 10 song title strings). Example: [{"name":"Artist","rank":1,"topSongs":["Song1","Song2","Song3"]}]`;
+      const countryContext = country ? ` most searched and streamed in ${country}` : '';
+      const prompt = `List the top 20${countryContext} ${genre} artists based on streaming platforms, radio play, and search trends. Return ONLY a JSON array with objects having fields: name (string), rank (number 1-20, unique), topSongs (array of up to 10 song title strings). Example: [{"name":"Artist","rank":1,"topSongs":["Song1","Song2","Song3"]}]`;
       const text = await this.generate(prompt);
       const parsed: GeminiArtistResult[] = JSON.parse(this.extractJson(text));
 
@@ -132,11 +133,22 @@ export class GeminiService {
     return queries;
   }
 
-  async cleanAndDeduplicate(rawResults: RawYouTubeResult[]): Promise<CleanedSongResult[]> {
+  async cleanAndDeduplicate(rawResults: RawYouTubeResult[], country?: string): Promise<CleanedSongResult[]> {
     if (rawResults.length === 0) return [];
 
     try {
-      const prompt = `You are a music data cleaner. Given these raw YouTube search results, normalize song titles (remove suffixes like "(Official Video)", "(Lyrics)", "(ft. ...)", fix casing), normalize artist names (consistent casing, remove featuring info), and deduplicate (same title+artist = one entry, keep best youtubeId). Return ONLY a JSON array of objects with fields: title, artistName, genre, artistRank, youtubeId, thumbnailUrl, durationSeconds (optional). Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
+      const countryContext = country ? ` Popular search terms in ${country} should be prioritized.` : '';
+      const prompt = `You are a music data cleaner. Given these raw YouTube search results, normalize song titles (remove suffixes like "(Official Video)", "(Lyrics)", "(ft. ...)", fix casing), normalize artist names (consistent casing, remove featuring info), and deduplicate (same title+artist = one entry, keep best youtubeId). 
+
+IMPORTANT: For each song, generate 3-5 relevant search tags that users would commonly search for. Tags should include:
+- Genre/subgenre (e.g., "reggaeton", "vallenato", "pop latino")
+- Mood/vibe (e.g., "romantic", "party", "sad", "energetic")  
+- Era/year if relevant (e.g., "2024", "90s", "classic")
+- Common search patterns (e.g., "para bailar", "para dedicar", "workout music")${countryContext}
+
+Return ONLY a JSON array of objects with fields: title, artistName, genre, artistRank, youtubeId, thumbnailUrl, durationSeconds (optional), tags (array of 3-5 strings). 
+
+Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
       const text = await this.generate(prompt);
       const parsed: CleanedSongResult[] = JSON.parse(this.extractJson(text));
 
