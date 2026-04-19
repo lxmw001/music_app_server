@@ -5,6 +5,7 @@ import * as admin from 'firebase-admin';
 import { FirestoreService } from '../firestore/firestore.service';
 import { GeminiService } from '../sync/gemini.service';
 import { YouTubeService } from '../sync/youtube.service';
+import { SpotifyService } from '../sync/spotify.service';
 import { CacheKeys } from '../cache/cache-keys';
 import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
@@ -36,6 +37,7 @@ export class SongsService {
     private readonly firestore: FirestoreService,
     private readonly gemini: GeminiService,
     private readonly youtube: YouTubeService,
+    private readonly spotify: SpotifyService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
@@ -367,15 +369,23 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
       if (!existing.empty) {
         songRefs.push({ songId: existing.docs[0].id, rank: index + 1, ...song });
       } else {
+        // Enrich with Spotify metadata
+        const spotifyData = await this.spotify.searchTrack(song.title, song.artistName);
+        
         // Create new song
         const songData = {
           title: song.title,
           artistName: song.artistName,
           youtubeId: song.videoId,
           nameLower: song.title.toLowerCase(),
-          coverImageUrl: original?.thumbnailUrl || '',
+          coverImageUrl: spotifyData?.albumArt || original?.thumbnailUrl || '',
           durationSeconds: original?.durationSeconds || 0,
-          tags: [],
+          album: spotifyData?.album || null,
+          releaseDate: spotifyData?.releaseDate || null,
+          genres: spotifyData?.genres || [],
+          spotifyId: spotifyData?.spotifyId || null,
+          popularity: spotifyData?.popularity || 0,
+          tags: spotifyData?.genres || [],
           searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -514,6 +524,10 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
               albumId: songData.albumId,
               genre: songData.genre,
               tags: songData.tags,
+              album: songData.album,
+              releaseDate: songData.releaseDate,
+              spotifyId: songData.spotifyId,
+              popularity: songData.popularity,
             };
           }
         }

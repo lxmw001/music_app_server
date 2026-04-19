@@ -10,6 +10,10 @@ export class SearchSongDto {
   albumId?: string;
   genre?: string;
   tags?: string[];
+  album?: string;
+  releaseDate?: string;
+  spotifyId?: string;
+  popularity?: number;
 }
 
 export class SearchMixDto {
