@@ -421,10 +421,17 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
         songRefs.push({ songId: bestMatch.id, rank: index + 1, ...song });
       } else if (!bestMatch) {
         // Enrich with Last.fm metadata
+        this.logger.log(`Enriching "${song.title}" by ${song.artistName} with Last.fm metadata`);
         const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
         
-        // Pick primary genre from tags (first tag is usually the main genre)
-        const primaryGenre = metadata?.tags?.[0] || null;
+        if (metadata) {
+          this.logger.log(`Last.fm returned: ${metadata.tags?.length || 0} tags, album: ${metadata.album || 'none'}`);
+        } else {
+          this.logger.warn(`Last.fm returned no metadata for "${song.title}" by ${song.artistName}`);
+        }
+        
+        // Use tags as genres
+        const genres = metadata?.tags || [];
         
         // Create new song
         const songData = {
@@ -436,8 +443,7 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
           durationSeconds: original?.durationSeconds || 0,
           album: metadata?.album || null,
           releaseDate: metadata?.releaseDate || null,
-          genre: primaryGenre,
-          genres: metadata?.tags || [],
+          genres,
           listeners: metadata?.listeners || 0,
           mbid: metadata?.mbid || null,
           tags: metadata?.tags || [],
@@ -652,6 +658,8 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
         thumbnailUrl: video?.thumbnailUrl || '',
         duration: video?.durationSeconds || 0,
         rank: index + 1,
+        genres: [],
+        tags: [],
       };
     });
 
@@ -797,10 +805,10 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
       return { success: false, message: 'No metadata found on Last.fm' };
     }
 
-    const primaryGenre = metadata.tags?.[0] || null;
+    const genres = metadata.tags || [];
 
     await this.firestore.doc(`songs/${songId}`).update({
-      genre: primaryGenre,
+      genres,
       tags: metadata.tags || [],
       album: metadata.album || null,
       listeners: metadata.listeners || 0,
@@ -809,8 +817,8 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
       updatedAt: new Date(),
     });
 
-    this.logger.log(`Refreshed metadata for song ${songId}: genre=${primaryGenre}, tags=${metadata.tags?.length || 0}`);
-    return { success: true, message: `Updated with genre: ${primaryGenre}, ${metadata.tags?.length || 0} tags` };
+    this.logger.log(`Refreshed metadata for song ${songId}: genres=${genres.length}, tags=${metadata.tags?.length || 0}`);
+    return { success: true, message: `Updated with ${genres.length} genres, ${metadata.tags?.length || 0} tags` };
   }
 
   private mapToSongResponse(id: string, data: any, rank: number = 0): SearchSongDto {
@@ -824,7 +832,7 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
       rank,
       artistId: data.artistId,
       albumId: data.albumId,
-      genre: data.genre,
+      genres: data.genres || [],
       tags: data.tags || [],
       album: data.album,
       releaseDate: data.releaseDate,
@@ -850,8 +858,8 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
               rank: s.rank,
               artistId: songData.artistId,
               albumId: songData.albumId,
-              genre: songData.genre,
-              tags: songData.tags,
+              genres: songData.genres || [],
+              tags: songData.tags || [],
               album: songData.album,
               releaseDate: songData.releaseDate,
               listeners: songData.listeners,

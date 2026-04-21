@@ -8,8 +8,8 @@ export class SearchSongDto {
   rank: number;
   artistId?: string;
   albumId?: string;
-  genre?: string;
-  tags?: string[];
+  genres: string[];
+  tags: string[];
   album?: string;
   releaseDate?: string;
   listeners?: number;
