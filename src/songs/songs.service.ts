@@ -636,12 +636,29 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
   }
 
   async generatePlaylist(songId: string, limit: number = 30): Promise<SongResponseDto[]> {
-    // Check cache (1 hour TTL)
-    const cacheKey = `playlist_${songId}_${limit}`;
-    const cached = await this.cache.get<SongResponseDto[]>(cacheKey);
-    if (cached) {
-      this.logger.log(`Returning cached playlist for song ${songId}`);
-      return cached;
+    // Check Firestore for saved playlist
+    const playlistDoc = await this.firestore.doc(`playlists_generated/${songId}`).get();
+    
+    if (playlistDoc.exists) {
+      const data = playlistDoc.data();
+      const lastUpdated = data.lastUpdated?.toDate();
+      const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 7 * 24 * 60 * 60 * 1000; // 7 days
+      
+      if (!isStale) {
+        this.logger.log(`Returning saved playlist for song ${songId}`);
+        // Fetch full song data
+        const songIds = data.songs.slice(0, limit);
+        const songs = await Promise.all(
+          songIds.map(async (id: string) => {
+            const doc = await this.firestore.doc(`songs/${id}`).get();
+            if (doc.exists) {
+              return this.mapToSongResponse(doc.id, doc.data());
+            }
+            return null;
+          })
+        );
+        return songs.filter(s => s !== null);
+      }
     }
 
     // Get the seed song
@@ -656,11 +673,11 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
     const playlist: SongResponseDto[] = [];
     const seenIds = new Set<string>([songId]);
 
-    // OPTION 1: Last.fm Similar Tracks (Primary)
+    // Use Last.fm Similar Tracks (no YouTube/Gemini needed)
     const similarTracks = await this.lastfm.getSimilarTracks(
       seedSong.title,
       seedSong.artistName,
-      limit * 2 // Get more to account for missing matches
+      limit * 2
     );
 
     // Match Last.fm results with our DB
@@ -687,7 +704,7 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
 
     this.logger.log(`Matched ${playlist.length} songs from Last.fm recommendations`);
 
-    // OPTION 2: Fallback - Match by tags/genre from DB
+    // Fallback - Match by tags/genre from DB
     if (playlist.length < limit) {
       const needed = limit - playlist.length;
       const tags = seedSong.tags || [];
@@ -714,47 +731,13 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
       this.logger.log(`Added ${playlist.length - similarTracks.length} songs from DB fallback`);
     }
 
-    /* OPTION 3: Gemini AI Alternative (commented out - can be enabled)
-    
-    if (playlist.length < limit) {
-      const prompt = `Given this song: "${seedSong.title}" by ${seedSong.artistName} (${seedSong.genre || 'unknown genre'}), 
-suggest ${limit - playlist.length} similar songs. Consider mood, tempo, genre, and artist style.
-Return ONLY JSON array: [{"title":"Song Title","artist":"Artist Name"}]`;
+    // Save to Firestore
+    await this.firestore.doc(`playlists_generated/${songId}`).set({
+      songs: playlist.map(s => s.id),
+      generatedAt: playlistDoc.exists ? playlistDoc.data().generatedAt : new Date(),
+      lastUpdated: new Date(),
+    });
 
-      try {
-        const text = await this.gemini.generate(prompt);
-        const suggestions = JSON.parse(this.extractJson(text));
-        
-        for (const suggestion of suggestions) {
-          if (playlist.length >= limit) break;
-          
-          // Search DB for Gemini suggestions
-          const snapshot = await this.firestore.collection('songs')
-            .where('nameLower', '==', suggestion.title.toLowerCase())
-            .limit(3)
-            .get();
-          
-          for (const doc of snapshot.docs) {
-            const songData = doc.data();
-            if (this.normalizeArtistName(songData.artistName) === 
-                this.normalizeArtistName(suggestion.artist) && 
-                !seenIds.has(doc.id)) {
-              playlist.push(this.mapToSongResponse(doc.id, songData));
-              seenIds.add(doc.id);
-              break;
-            }
-          }
-        }
-        
-        this.logger.log(`Added ${playlist.length} songs using Gemini recommendations`);
-      } catch (error) {
-        this.logger.warn(`Gemini playlist generation failed: ${error.message}`);
-      }
-    }
-    */
-
-    // Cache for 1 hour (3600000 ms)
-    await this.cache.set(cacheKey, playlist, 3600000);
     return playlist;
   }
 
