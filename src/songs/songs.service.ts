@@ -54,11 +54,13 @@ export class SongsService {
       id: doc.id,
       title: data.title,
       artistId: data.artistId,
+      artistName: data.artistName,
       albumId: data.albumId,
       durationSeconds: data.durationSeconds,
       coverImageUrl: data.coverImageUrl,
       youtubeId: data.youtubeId,
       genre: data.genre,
+      tags: data.tags,
     };
 
     await this.cache.set(key, response, 300_000);
@@ -83,11 +85,13 @@ export class SongsService {
         id: doc.id,
         title: data.title,
         artistId: data.artistId,
+        artistName: data.artistName,
         albumId: data.albumId,
         durationSeconds: data.durationSeconds,
         coverImageUrl: data.coverImageUrl,
         youtubeId: data.youtubeId,
         genre: data.genre,
+        tags: data.tags,
       };
     });
   }
