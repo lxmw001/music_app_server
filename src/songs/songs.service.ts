@@ -6,6 +6,7 @@ import { FirestoreService } from '../firestore/firestore.service';
 import { GeminiService } from '../sync/gemini.service';
 import { YouTubeService } from '../sync/youtube.service';
 import { LastFmService } from '../sync/lastfm.service';
+import { SongDeduplicationService } from './song-deduplication.service';
 import { CacheKeys } from '../cache/cache-keys';
 import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
@@ -38,6 +39,7 @@ export class SongsService {
     private readonly gemini: GeminiService,
     private readonly youtube: YouTubeService,
     private readonly lastfm: LastFmService,
+    private readonly dedup: SongDeduplicationService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
 
@@ -415,89 +417,120 @@ export class SongsService {
     let classifiedArtists: any[] = [];
 
     if (unknownResults.length > 0) {
-      const prompt = `Classify YouTube results into: songs, mixes, videos, artists.
-Rules:
-- Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist. Assign 1-3 music genres (e.g., reggaeton, rock, pop, hip hop, electronic, latin, bachata, salsa, etc.)
-- Mixes: Playlists, compilations, DJ sets
-- Videos: Interviews, behind-scenes, live performances
-- Artists: Artist channels
-- IMPORTANT: Remove duplicates - if same song appears multiple times:
-  * Recognize artist name variations (e.g., "El Binomio de Oro de America" = "Binomio de Oro")
-  * Keep the version with shortest duration (avoids intros/outros)
-  * Use the shortest/cleanest artist name format (remove "de America", "de Colombia", etc.)
+      // --- Step A: check song_duplicates for unknown videoIds ---
+      // Some unknowns may already be recorded as duplicates of existing songs
+      const dedupChecks = await Promise.all(
+        unknownResults.map(r => this.dedup.getCanonicalSongId(r.videoId))
+      );
+      const trulyUnknown = unknownResults.filter((_, i) => !dedupChecks[i]);
+      const knownDuplicates = unknownResults.filter((_, i) => !!dedupChecks[i]);
 
-Return JSON:
-{
-  "songs": [{"title":"Song","artistName":"Artist","videoId":"abc","genres":["genre1","genre2"]}],
-  "mixes": [{"title":"Mix","videoId":"xyz"}],
-  "videos": [{"title":"Video","videoId":"def"}],
-  "artists": [{"name":"Artist"}]
-}
-
-Input: ${JSON.stringify(unknownResults.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
-
-      const text = await this.gemini.generate(prompt);
-      const classified = JSON.parse(this.extractJson(text));
-
-      classifiedMixes = classified.mixes || [];
-      classifiedVideos = classified.videos || [];
-      classifiedArtists = classified.artists || [];
-
-      // Deduplicate classified songs
-      const seenSongs = new Map<string, any>();
-      const uniqueSongs: any[] = [];
-      for (const song of classified.songs || []) {
-        const key = `${song.title.toLowerCase()}-${this.normalizeArtistName(song.artistName)}`;
-        const existing = seenSongs.get(key);
-        const currentDuration = unknownResults.find(r => r.videoId === song.videoId)?.durationSeconds || 999999;
-        if (!existing) {
-          seenSongs.set(key, { song, duration: currentDuration });
-          uniqueSongs.push(song);
-        } else if (currentDuration < existing.duration) {
-          const index = uniqueSongs.indexOf(existing.song);
-          uniqueSongs[index] = song;
-          seenSongs.set(key, { song, duration: currentDuration });
+      for (let i = 0; i < unknownResults.length; i++) {
+        const canonicalId = dedupChecks[i];
+        if (canonicalId && !seenDbIds.has(canonicalId)) {
+          seenDbIds.add(canonicalId);
+          const r = unknownResults[i];
+          songRefs.push({ songId: canonicalId, rank: rankCounter++, videoId: r.videoId, title: r.title, artistName: r.channelTitle });
         }
       }
 
-      // Parallel Last.fm enrichment only for truly new songs
-      if (uniqueSongs.length > 0) {
-        this.logger.log(`Enriching ${uniqueSongs.length} new songs with Last.fm (parallel)`);
-        const metadataResults = await Promise.all(
-          uniqueSongs.map(song => this.lastfm.searchTrack(song.title, song.artistName))
+      if (knownDuplicates.length > 0) {
+        this.logger.log(`Skipped ${knownDuplicates.length} known duplicates from song_duplicates cache`);
+      }
+
+      if (trulyUnknown.length > 0) {
+        // --- Step B: code-based dedup before sending to Gemini ---
+        const dedupInput = trulyUnknown.map(r => ({
+          videoId: r.videoId,
+          title: r.title,
+          artistName: r.channelTitle,
+          durationSeconds: r.durationSeconds,
+        }));
+        const { unique: dedupedUnknown, duplicateMap } = this.dedup.deduplicateByCode(dedupInput);
+
+        // Persist code-detected duplicates to song_distinct/song_duplicates async
+        for (const [removedId, keptId] of duplicateMap.entries()) {
+          this.dedup.recordDistinct(removedId, keptId, 'code_dedup_kept_shorter').catch(() => {});
+        }
+
+        this.logger.log(
+          `Code dedup: ${trulyUnknown.length} → ${dedupedUnknown.length} (removed ${duplicateMap.size} duplicates)`
         );
 
-        await Promise.all(
-          uniqueSongs.map(async (song, i) => {
-            const original = unknownResults.find(r => r.videoId === song.videoId);
-            const metadata = metadataResults[i];
-            const allGenres = [...new Set([...(song.genres || []), ...(metadata?.tags || [])])].slice(0, 5);
+        // --- Step C: Gemini classification (no dedup instruction needed) ---
+        const prompt = `Classify YouTube music results into: songs, mixes, videos, artists.
+Rules:
+- Songs: Single music tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist name. Assign 1-3 music genres.
+- Mixes: Playlists, compilations, DJ sets, "Best of" collections.
+- Videos: Interviews, behind-the-scenes, live performances (not music videos).
+- Artists: Artist channels or profiles.
 
-            const songData = {
-              title: song.title,
-              artistName: song.artistName,
-              youtubeId: song.videoId,
-              nameLower: song.title.toLowerCase(),
-              coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
-              durationSeconds: original?.durationSeconds || 0,
-              album: metadata?.album || null,
-              releaseDate: metadata?.releaseDate || null,
-              genres: allGenres,
-              listeners: metadata?.listeners || 0,
-              mbid: metadata?.mbid || null,
-              tags: metadata?.rawTags || [],
-              searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
+Return JSON only:
+{
+  "songs": [{"title":"Clean Title","artistName":"Artist","videoId":"abc","genres":["genre1"]}],
+  "mixes": [{"title":"Mix Title","videoId":"xyz"}],
+  "videos": [{"title":"Video Title","videoId":"def"}],
+  "artists": [{"name":"Artist Name"}]
+}
 
-            const docRef = await this.firestore.collection('songs').add(songData);
-            if (!seenDbIds.has(docRef.id)) {
-              seenDbIds.add(docRef.id);
-              songRefs.push({ songId: docRef.id, rank: rankCounter++, videoId: song.videoId, title: song.title, artistName: song.artistName });
-            }
-          })
-        );
+Input: ${JSON.stringify(dedupedUnknown.map(r => ({ videoId: r.videoId, title: r.title, channel: r.artistName, duration: r.durationSeconds })))}`;
+
+        const text = await this.gemini.generate(prompt);
+        const classified = JSON.parse(this.extractJson(text));
+
+        classifiedMixes = classified.mixes || [];
+        classifiedVideos = classified.videos || [];
+        classifiedArtists = classified.artists || [];
+
+        const classifiedSongs: any[] = classified.songs || [];
+
+        // --- Step D: parallel Last.fm enrichment for new songs only ---
+        if (classifiedSongs.length > 0) {
+          this.logger.log(`Enriching ${classifiedSongs.length} new songs with Last.fm (parallel)`);
+          const metadataResults = await Promise.all(
+            classifiedSongs.map(song => this.lastfm.searchTrack(song.title, song.artistName))
+          );
+
+          await Promise.all(
+            classifiedSongs.map(async (song, i) => {
+              const original = trulyUnknown.find(r => r.videoId === song.videoId);
+              const metadata = metadataResults[i];
+              const allGenres = [...new Set([...(song.genres || []), ...(metadata?.tags || [])])].slice(0, 5);
+
+              const songData = {
+                title: song.title,
+                artistName: song.artistName,
+                youtubeId: song.videoId,
+                nameLower: song.title.toLowerCase(),
+                coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
+                durationSeconds: original?.durationSeconds || 0,
+                album: metadata?.album || null,
+                releaseDate: metadata?.releaseDate || null,
+                genres: allGenres,
+                listeners: metadata?.listeners || 0,
+                mbid: metadata?.mbid || null,
+                tags: metadata?.rawTags || [],
+                searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              };
+
+              const docRef = await this.firestore.collection('songs').add(songData);
+              if (!seenDbIds.has(docRef.id)) {
+                seenDbIds.add(docRef.id);
+                songRefs.push({ songId: docRef.id, rank: rankCounter++, videoId: song.videoId, title: song.title, artistName: song.artistName });
+
+                // Record code-detected duplicates pointing to this new song
+                const dupeVideoIds = [...duplicateMap.entries()]
+                  .filter(([, keptId]) => keptId === song.videoId)
+                  .map(([removedId]) => removedId);
+                for (const dupeId of dupeVideoIds) {
+                  this.dedup.recordDuplicate(dupeId, docRef.id, song.videoId).catch(() => {});
+                }
+              }
+            })
+          );
+        }
       }
     }
     

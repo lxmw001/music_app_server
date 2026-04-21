@@ -6,6 +6,7 @@ import { FirestoreService } from '../firestore/firestore.service';
 import { GeminiService } from '../sync/gemini.service';
 import { YouTubeService } from '../sync/youtube.service';
 import { LastFmService } from '../sync/lastfm.service';
+import { SongDeduplicationService } from './song-deduplication.service';
 import {
   createMockFirestore,
   createMockCache,
@@ -28,6 +29,12 @@ describe('SongsService', () => {
         { provide: GeminiService, useValue: { cleanTitle: jest.fn() } },
         { provide: YouTubeService, useValue: { searchVideos: jest.fn() } },
         { provide: LastFmService, useValue: { searchTrack: jest.fn(), getSimilarTracks: jest.fn() } },
+        { provide: SongDeduplicationService, useValue: {
+          getCanonicalSongId: jest.fn().mockResolvedValue(null),
+          deduplicateByCode: jest.fn().mockReturnValue({ unique: [], duplicateMap: new Map() }),
+          recordDuplicate: jest.fn().mockResolvedValue(undefined),
+          recordDistinct: jest.fn().mockResolvedValue(undefined),
+        }},
         { provide: CACHE_MANAGER, useValue: mockCache },
       ],
     }).compile();

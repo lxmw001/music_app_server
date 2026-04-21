@@ -5,11 +5,12 @@ import { SyncModule } from '../sync/sync.module';
 import { SongsService } from './songs.service';
 import { SongsController } from './songs.controller';
 import { SearchRefreshScheduler } from './search-refresh.scheduler';
+import { SongDeduplicationService } from './song-deduplication.service';
 
 @Module({
   imports: [FirestoreModule, AuthModule, SyncModule],
   controllers: [SongsController],
-  providers: [SongsService, SearchRefreshScheduler],
-  exports: [SongsService],
+  providers: [SongsService, SearchRefreshScheduler, SongDeduplicationService],
+  exports: [SongsService, SongDeduplicationService],
 })
 export class SongsModule {}
