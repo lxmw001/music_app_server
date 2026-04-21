@@ -5,6 +5,7 @@ import { SongsService } from './songs.service';
 import { FirestoreService } from '../firestore/firestore.service';
 import { GeminiService } from '../sync/gemini.service';
 import { YouTubeService } from '../sync/youtube.service';
+import { LastFmService } from '../sync/lastfm.service';
 import {
   createMockFirestore,
   createMockCache,
@@ -26,6 +27,7 @@ describe('SongsService', () => {
         { provide: FirestoreService, useValue: mockFirestore },
         { provide: GeminiService, useValue: { cleanTitle: jest.fn() } },
         { provide: YouTubeService, useValue: { searchVideos: jest.fn() } },
+        { provide: LastFmService, useValue: { searchTrack: jest.fn(), getSimilarTracks: jest.fn() } },
         { provide: CACHE_MANAGER, useValue: mockCache },
       ],
     }).compile();

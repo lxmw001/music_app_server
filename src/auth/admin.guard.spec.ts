@@ -15,10 +15,16 @@ function createMockExecutionContext(headers: Record<string, string> = {}) {
 describe('AdminGuard', () => {
   let mockAdmin: ReturnType<typeof createMockFirebaseAdmin>;
   let guard: AdminGuard;
+  const originalEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
+    process.env.NODE_ENV = 'test'; // Disable development mode bypass
     mockAdmin = createMockFirebaseAdmin();
     guard = new AdminGuard(mockAdmin as any);
+  });
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalEnv;
   });
 
   it('returns true when token is valid and req.user.admin is true', async () => {
