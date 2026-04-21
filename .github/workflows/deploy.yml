@@ -63,5 +63,5 @@ jobs:
             --region us-central1 \
             --allow-unauthenticated \
             --set-env-vars="FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }},FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@music-app-e8267.iam.gserviceaccount.com,NODE_ENV=production,FIRESTORE_DATABASE_ID=music-db" \
-            --update-secrets="FIREBASE_PRIVATE_KEY=FIREBASE_PRIVATE_KEY:latest,YOUTUBE_API_KEY=YOUTUBE_API_KEY:latest,YOUTUBE_API_KEY_2=YOUTUBE_API_KEY_2:latest,YOUTUBE_API_KEY_3=YOUTUBE_API_KEY_3:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,SPOTIFY_CLIENT_ID=SPOTIFY_CLIENT_ID:latest,SPOTIFY_CLIENT_SECRET=SPOTIFY_CLIENT_SECRET:latest" \
+            --update-secrets="FIREBASE_PRIVATE_KEY=FIREBASE_PRIVATE_KEY:latest,YOUTUBE_API_KEY=YOUTUBE_API_KEY:latest,YOUTUBE_API_KEY_2=YOUTUBE_API_KEY_2:latest,YOUTUBE_API_KEY_3=YOUTUBE_API_KEY_3:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,LASTFM_API_KEY=LASTFM_API_KEY:latest" \
             --project ${{ secrets.FIREBASE_PROJECT_ID }}
