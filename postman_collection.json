@@ -31,23 +31,17 @@
 			"name": "Songs",
 			"item": [
 				{
-					"name": "Get All Songs",
+					"name": "List Songs",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/songs?limit=10&offset=0",
+							"raw": "{{baseUrl}}/songs?page=1&pageSize=20",
 							"host": ["{{baseUrl}}"],
 							"path": ["songs"],
 							"query": [
-								{
-									"key": "limit",
-									"value": "10"
-								},
-								{
-									"key": "offset",
-									"value": "0"
-								}
+								{ "key": "page", "value": "1" },
+								{ "key": "pageSize", "value": "20" }
 							]
 						}
 					}
@@ -61,13 +55,82 @@
 							"raw": "{{baseUrl}}/songs/:id",
 							"host": ["{{baseUrl}}"],
 							"path": ["songs", ":id"],
-							"variable": [
-								{
-									"key": "id",
-									"value": ""
-								}
-							]
+							"variable": [{ "key": "id", "value": "" }]
 						}
+					}
+				},
+				{
+					"name": "Search YouTube (simple)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs/search-youtube?query=bad bunny",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", "search-youtube"],
+							"query": [{ "key": "query", "value": "bad bunny" }]
+						},
+						"description": "Simple artist/song name search"
+					}
+				},
+				{
+					"name": "Search YouTube (natural language)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs/search-youtube?query=sad reggaeton songs",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", "search-youtube"],
+							"query": [{ "key": "query", "value": "sad reggaeton songs" }]
+						},
+						"description": "Natural language query — Gemini extracts genre/mood/tags"
+					}
+				},
+				{
+					"name": "Trending Music",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs/trending?country=EC&limit=50",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", "trending"],
+							"query": [
+								{ "key": "country", "value": "EC" },
+								{ "key": "limit", "value": "50" }
+							]
+						},
+						"description": "Trending music by country code (cached 6h)"
+					}
+				},
+				{
+					"name": "Generate Playlist from Song",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs/:id/generate-playlist?limit=30",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", ":id", "generate-playlist"],
+							"query": [{ "key": "limit", "value": "30" }],
+							"variable": [{ "key": "id", "value": "" }]
+						},
+						"description": "AI-generated playlist based on a seed song (Last.fm similar tracks)"
+					}
+				},
+				{
+					"name": "Refresh Song Metadata",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs/:id/refresh-metadata",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", ":id", "refresh-metadata"],
+							"variable": [{ "key": "id", "value": "" }]
+						},
+						"description": "Refresh Last.fm metadata (genres, tags, album art, listeners)"
 					}
 				}
 			]
@@ -76,23 +139,17 @@
 			"name": "Artists",
 			"item": [
 				{
-					"name": "Get All Artists",
+					"name": "List Artists",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/artists?limit=10&offset=0",
+							"raw": "{{baseUrl}}/artists?page=1&pageSize=20",
 							"host": ["{{baseUrl}}"],
 							"path": ["artists"],
 							"query": [
-								{
-									"key": "limit",
-									"value": "10"
-								},
-								{
-									"key": "offset",
-									"value": "0"
-								}
+								{ "key": "page", "value": "1" },
+								{ "key": "pageSize", "value": "20" }
 							]
 						}
 					}
@@ -106,12 +163,7 @@
 							"raw": "{{baseUrl}}/artists/:id",
 							"host": ["{{baseUrl}}"],
 							"path": ["artists", ":id"],
-							"variable": [
-								{
-									"key": "id",
-									"value": ""
-								}
-							]
+							"variable": [{ "key": "id", "value": "" }]
 						}
 					}
 				},
@@ -124,12 +176,7 @@
 							"raw": "{{baseUrl}}/artists/:id/songs",
 							"host": ["{{baseUrl}}"],
 							"path": ["artists", ":id", "songs"],
-							"variable": [
-								{
-									"key": "id",
-									"value": ""
-								}
-							]
+							"variable": [{ "key": "id", "value": "" }]
 						}
 					}
 				},
@@ -142,12 +189,7 @@
 							"raw": "{{baseUrl}}/artists/:id/albums",
 							"host": ["{{baseUrl}}"],
 							"path": ["artists", ":id", "albums"],
-							"variable": [
-								{
-									"key": "id",
-									"value": ""
-								}
-							]
+							"variable": [{ "key": "id", "value": "" }]
 						}
 					}
 				}
@@ -157,23 +199,17 @@
 			"name": "Albums",
 			"item": [
 				{
-					"name": "Get All Albums",
+					"name": "List Albums",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/albums?limit=10&offset=0",
+							"raw": "{{baseUrl}}/albums?page=1&pageSize=20",
 							"host": ["{{baseUrl}}"],
 							"path": ["albums"],
 							"query": [
-								{
-									"key": "limit",
-									"value": "10"
-								},
-								{
-									"key": "offset",
-									"value": "0"
-								}
+								{ "key": "page", "value": "1" },
+								{ "key": "pageSize", "value": "20" }
 							]
 						}
 					}
@@ -187,12 +223,7 @@
 							"raw": "{{baseUrl}}/albums/:id",
 							"host": ["{{baseUrl}}"],
 							"path": ["albums", ":id"],
-							"variable": [
-								{
-									"key": "id",
-									"value": ""
-								}
-							]
+							"variable": [{ "key": "id", "value": "" }]
 						}
 					}
 				}
@@ -202,7 +233,7 @@
 			"name": "Playlists",
 			"item": [
 				{
-					"name": "Get All Playlists",
+					"name": "List My Playlists",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -217,12 +248,7 @@
 					"name": "Create Playlist",
 					"request": {
 						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"name\": \"My Playlist\",\n  \"description\": \"My favorite songs\"\n}"
@@ -243,12 +269,7 @@
 							"raw": "{{baseUrl}}/playlists/:id",
 							"host": ["{{baseUrl}}"],
 							"path": ["playlists", ":id"],
-							"variable": [
-								{
-									"key": "id",
-									"value": ""
-								}
-							]
+							"variable": [{ "key": "id", "value": "" }]
 						}
 					}
 				},
@@ -256,12 +277,7 @@
 					"name": "Add Song to Playlist",
 					"request": {
 						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
 							"raw": "{\n  \"songId\": \"song-id-here\"\n}"
@@ -270,12 +286,7 @@
 							"raw": "{{baseUrl}}/playlists/:id/songs",
 							"host": ["{{baseUrl}}"],
 							"path": ["playlists", ":id", "songs"],
-							"variable": [
-								{
-									"key": "id",
-									"value": ""
-								}
-							]
+							"variable": [{ "key": "id", "value": "" }]
 						}
 					}
 				},
@@ -289,14 +300,8 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["playlists", ":id", "songs", ":songId"],
 							"variable": [
-								{
-									"key": "id",
-									"value": ""
-								},
-								{
-									"key": "songId",
-									"value": ""
-								}
+								{ "key": "id", "value": "" },
+								{ "key": "songId", "value": "" }
 							]
 						}
 					}
@@ -304,73 +309,20 @@
 			]
 		},
 		{
-			"name": "Search",
+			"name": "Admin",
 			"item": [
 				{
-					"name": "Search",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/search?q=search-term",
-							"host": ["{{baseUrl}}"],
-							"path": ["search"],
-							"query": [
-								{
-									"key": "q",
-									"value": "search-term"
-								}
-							]
-						}
-					}
-				}
-			]
-		},
-		{
-			"name": "Suggestions",
-			"item": [
-				{
-					"name": "Get Suggestions",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/suggestions?q=query",
-							"host": ["{{baseUrl}}"],
-							"path": ["suggestions"],
-							"query": [
-								{
-									"key": "q",
-									"value": "query"
-								}
-							]
-						}
-					}
-				}
-			]
-		},
-		{
-			"name": "Sync",
-			"item": [
-				{
-					"name": "Trigger Sync (Admin)",
+					"name": "Set Admin Claim",
 					"request": {
 						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"genres\": [\"Rock\", \"Pop\", \"Jazz\"],\n  \"force\": false\n}"
-						},
+						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/sync/trigger",
+							"raw": "{{baseUrl}}/admin/set-admin/:uid",
 							"host": ["{{baseUrl}}"],
-							"path": ["sync", "trigger"]
-						}
+							"path": ["admin", "set-admin", ":uid"],
+							"variable": [{ "key": "uid", "value": "" }]
+						},
+						"description": "⚠️ No auth guard — sets admin: true custom claim on a Firebase user"
 					}
 				}
 			]

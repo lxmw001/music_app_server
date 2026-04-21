@@ -135,7 +135,7 @@ Open `get-token.html` in a browser to sign in and copy your Firebase ID token fo
 
 ## API Reference
 
-All endpoints require a Firebase ID token in the `Authorization` header (except where noted as optional auth):
+All endpoints use optional Firebase auth unless noted as required (✅).
 
 ```
 Authorization: Bearer <firebase-id-token>
@@ -146,14 +146,11 @@ Authorization: Bearer <firebase-id-token>
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/songs` | optional | List songs (paginated) |
-| `GET` | `/songs/:id` | optional | Get song by ID |
 | `GET` | `/songs/trending?country=EC&limit=50` | optional | Trending music by country (cached 6h) |
-| `GET` | `/songs/search-youtube?query=bad+bunny` | optional | Search YouTube with Gemini classification + Firestore cache |
-| `POST` | `/songs/search-youtube` | optional | Same as GET (deprecated, use GET) |
+| `GET` | `/songs/search-youtube?query=bad+bunny` | optional | YouTube search with NL intent + Firestore cache |
+| `GET` | `/songs/:id` | optional | Get song by ID |
 | `GET` | `/songs/:id/generate-playlist?limit=30` | optional | AI-generated playlist based on a song |
 | `POST` | `/songs/:id/refresh-metadata` | optional | Refresh Last.fm metadata for a song |
-| `POST` | `/songs/submit-search` | optional | Submit YouTube results for Gemini cleaning and storage |
-| `POST` | `/songs/clean-youtube-results` | optional | Clean raw YouTube results via Gemini |
 
 #### YouTube Search Response
 
@@ -179,6 +176,8 @@ Authorization: Bearer <firebase-id-token>
   "artists": [{ "name": "Bad Bunny", "rank": 1 }]
 }
 ```
+
+Natural language queries are supported: `?query=sad+reggaeton+songs`, `?query=music+for+working+out`
 
 ### Artists
 
@@ -206,34 +205,13 @@ Authorization: Bearer <firebase-id-token>
 | `POST` | `/playlists/:id/songs` | ✅ | Add song to playlist (owner only) |
 | `DELETE` | `/playlists/:id/songs/:songId` | ✅ | Remove song from playlist (owner only) |
 
-### Search & Suggestions
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/search?q=rock` | ✅ | Search songs, artists, albums, playlists |
-| `GET` | `/suggestions?q=ro` | ✅ | Autocomplete suggestions (min 2 chars) |
-
-### Sync (Admin only)
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/sync/trigger` | ✅ admin | Trigger data sync pipeline |
-
-```json
-// Request body
-{
-  "genres": ["Rock", "Pop"],  // optional — auto-discovers if empty
-  "force": false              // true = bypass syncCache
-}
-```
-
 ### Admin
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/admin/set-admin/:uid` | none | Set admin claim on a Firebase user |
 
-> ⚠️ The `/admin/set-admin/:uid` endpoint has no auth guard — restrict access via Firebase Security Rules or remove in production.
+> ⚠️ The `/admin/set-admin/:uid` endpoint has no auth guard — restrict access in production.
 
 ---
 
