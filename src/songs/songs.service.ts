@@ -543,7 +543,15 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
   }
 
   async getTrendingMusic(country: string = 'EC', limit: number = 50): Promise<SearchYouTubeResponseDto> {
-    this.logger.log(`Getting trending music for ${country}`);
+    // Check cache (24 hour TTL)
+    const cacheKey = `trending_${country}_${limit}`;
+    const cached = await this.cache.get<SearchYouTubeResponseDto>(cacheKey);
+    if (cached) {
+      this.logger.log(`Returning cached trending music for ${country}`);
+      return cached;
+    }
+
+    this.logger.log(`Getting trending music for ${country} from YouTube`);
 
     // Get trending videos from YouTube
     const trendingVideos = await this.youtube.getTrendingVideos(country, limit);
@@ -604,7 +612,7 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
       };
     });
 
-    return {
+    const result = {
       songs,
       mixes: (classified.mixes || []).map((m, i) => ({
         ...m,
@@ -621,9 +629,21 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
         rank: i + 1,
       })),
     };
+
+    // Cache for 24 hours (86400000 ms)
+    await this.cache.set(cacheKey, result, 86400000);
+    return result;
   }
 
   async generatePlaylist(songId: string, limit: number = 30): Promise<SongResponseDto[]> {
+    // Check cache (1 hour TTL)
+    const cacheKey = `playlist_${songId}_${limit}`;
+    const cached = await this.cache.get<SongResponseDto[]>(cacheKey);
+    if (cached) {
+      this.logger.log(`Returning cached playlist for song ${songId}`);
+      return cached;
+    }
+
     // Get the seed song
     const seedDoc = await this.firestore.doc(`songs/${songId}`).get();
     if (!seedDoc.exists) {
@@ -733,6 +753,8 @@ Return ONLY JSON array: [{"title":"Song Title","artist":"Artist Name"}]`;
     }
     */
 
+    // Cache for 1 hour (3600000 ms)
+    await this.cache.set(cacheKey, playlist, 3600000);
     return playlist;
   }
 
