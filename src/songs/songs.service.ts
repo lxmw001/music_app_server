@@ -303,38 +303,65 @@ export class SongsService {
 
   async searchYouTube(dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
     const normalizedQuery = this.normalizeSearchQuery(dto.query);
-    
-    // Check exact cache match
+
+    // 1. Check in-memory cache first (5 min TTL) — fastest path
+    const memCacheKey = `yt_search:${normalizedQuery}`;
+    const memCached = await this.cache.get<SearchYouTubeResponseDto>(memCacheKey);
+    if (memCached) {
+      this.logger.log(`Memory cache hit for "${dto.query}"`);
+      return memCached;
+    }
+
+    // 2. Check Firestore exact match
     let cached = await this.firestore.doc(`youtube_searches/${normalizedQuery}`).get();
-    
-    // If no exact match, try fuzzy search on similar queries
+
+    // 3. If no exact match, try fuzzy search — but run it async so it doesn't block
+    //    We only wait for it if we truly have no cache at all
     if (!cached.exists) {
       const fuzzyMatch = await this.findSimilarSearch(dto.query);
       if (fuzzyMatch) {
         cached = fuzzyMatch;
-        // Add this query as a variation
-        await this.firestore.doc(`youtube_searches/${fuzzyMatch.id}`).update({
+        // Fire-and-forget: register variation without blocking response
+        this.firestore.doc(`youtube_searches/${fuzzyMatch.id}`).update({
           variations: admin.firestore.FieldValue.arrayUnion(dto.query.toLowerCase()),
-        });
+        }).catch(() => {});
       }
     }
-    
+
     if (cached.exists) {
       const data = cached.data();
       const lastUpdated = data.lastUpdated?.toDate();
       const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 7 * 24 * 60 * 60 * 1000;
-      
-      // Increment search count
-      await this.firestore.doc(`youtube_searches/${cached.id}`).update({
+
+      // Fire-and-forget: increment search count without blocking
+      this.firestore.doc(`youtube_searches/${cached.id}`).update({
         searchCount: (data.searchCount || 0) + 1,
         lastSearched: new Date(),
-      });
-      
+      }).catch(() => {});
+
       if (!isStale) {
-        return this.enrichSearchResults(data);
+        const result = await this.enrichSearchResults(data);
+        // Populate memory cache
+        await this.cache.set(memCacheKey, result, 300_000); // 5 min
+        return result;
       }
+
+      // Stale-while-revalidate: return stale data immediately, refresh in background
+      this.logger.log(`Stale cache for "${dto.query}" — returning stale, refreshing in background`);
+      const staleResult = await this.enrichSearchResults(data);
+      await this.cache.set(memCacheKey, staleResult, 300_000);
+      // Background refresh — don't await
+      this.refreshSearchCache(dto, normalizedQuery).catch(err =>
+        this.logger.error(`Background refresh failed for "${dto.query}": ${err.message}`)
+      );
+      return staleResult;
     }
     
+    // Delegate to shared method used by both fresh fetch and background refresh
+    return this.refreshSearchCache(dto, normalizedQuery);
+  }
+
+  private async refreshSearchCache(dto: SearchYouTubeDto, normalizedQuery: string): Promise<SearchYouTubeResponseDto> {
     // YouTube search
     const results = await this.youtube.searchVideos(dto.query, 20);
     
@@ -387,83 +414,87 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
     // Save songs to songs collection (not in search cache)
     const songRefs = [];
     const seenDbIds = new Set<string>(); // Track DB IDs to avoid duplicates
-    
+
+    // --- OPTIMIZATION: batch Firestore duplicate checks ---
+    // Collect all title prefixes and run parallel prefix queries
+    const songCandidateSnapshots = await Promise.all(
+      (classified.songs || []).map(song =>
+        this.firestore.collection('songs')
+          .where('nameLower', '>=', song.title.toLowerCase().substring(0, 3))
+          .where('nameLower', '<=', song.title.toLowerCase().substring(0, 3) + '\uf8ff')
+          .limit(20)
+          .get()
+      )
+    );
+
+    // Identify which songs are new (no DB match)
+    const newSongs: Array<{ song: any; original: any; index: number }> = [];
     for (const [index, song] of (classified.songs || []).entries()) {
       const original = results.find(r => r.videoId === song.videoId);
-      
-      // Use fuzzy matching to find similar songs (title + artist)
       const searchString = `${song.title} ${song.artistName}`.toLowerCase();
-      const normalizedArtist = this.normalizeArtistName(song.artistName);
-      
-      // Get songs by similar artist name first (more efficient than scanning all)
-      const candidatesSnapshot = await this.firestore.collection('songs')
-        .where('nameLower', '>=', song.title.toLowerCase().substring(0, 3))
-        .where('nameLower', '<=', song.title.toLowerCase().substring(0, 3) + '\uf8ff')
-        .limit(20)
-        .get();
-      
+      const candidatesSnapshot = songCandidateSnapshots[index];
+
       let bestMatch = null;
       let bestSimilarity = 0;
-      
       for (const doc of candidatesSnapshot.docs) {
         const data = doc.data();
         const candidateString = `${data.title} ${data.artistName}`.toLowerCase();
         const similarity = this.calculateSimilarity(searchString, candidateString);
-        
-        if (similarity > bestSimilarity && similarity >= 0.85) { // 85% similarity threshold
+        if (similarity > bestSimilarity && similarity >= 0.85) {
           bestSimilarity = similarity;
           bestMatch = doc;
         }
       }
-      
+
       if (bestMatch && !seenDbIds.has(bestMatch.id)) {
         seenDbIds.add(bestMatch.id);
         songRefs.push({ songId: bestMatch.id, rank: index + 1, ...song });
       } else if (!bestMatch) {
-        // Enrich with Last.fm metadata
-        this.logger.log(`Enriching "${song.title}" by ${song.artistName} with Last.fm metadata`);
-        const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
-        
-        if (metadata) {
-          this.logger.log(`Last.fm returned: ${metadata.tags?.length || 0} tags, album: ${metadata.album || 'none'}`);
-        } else {
-          this.logger.warn(`Last.fm returned no metadata for "${song.title}" by ${song.artistName}`);
-        }
-        
-        // Genres: Gemini + cleaned Last.fm tags
-        const geminiGenres = song.genres || [];
-        const lastfmGenres = metadata?.tags || [];
-        const allGenres = [...new Set([...geminiGenres, ...lastfmGenres])].slice(0, 5);
-        
-        // Tags: raw Last.fm (unfiltered)
-        const rawLastfmTags = metadata?.rawTags || [];
-        
-        // Create new song
-        const songData = {
-          title: song.title,
-          artistName: song.artistName,
-          youtubeId: song.videoId,
-          nameLower: song.title.toLowerCase(),
-          coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
-          durationSeconds: original?.durationSeconds || 0,
-          album: metadata?.album || null,
-          releaseDate: metadata?.releaseDate || null,
-          genres: allGenres,
-          listeners: metadata?.listeners || 0,
-          mbid: metadata?.mbid || null,
-          tags: rawLastfmTags,
-          searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        
-        const docRef = await this.firestore.collection('songs').add(songData);
-        const docId = docRef.id;
-        if (!seenDbIds.has(docId)) {
-          seenDbIds.add(docId);
-          songRefs.push({ songId: docId, rank: index + 1, ...song });
-        }
+        newSongs.push({ song, original, index });
       }
+    }
+
+    // --- OPTIMIZATION: parallel Last.fm calls for all new songs ---
+    if (newSongs.length > 0) {
+      this.logger.log(`Enriching ${newSongs.length} new songs with Last.fm (parallel)`);
+      const metadataResults = await Promise.all(
+        newSongs.map(({ song }) => this.lastfm.searchTrack(song.title, song.artistName))
+      );
+
+      // Save all new songs in parallel
+      await Promise.all(
+        newSongs.map(async ({ song, original, index }, i) => {
+          const metadata = metadataResults[i];
+          const geminiGenres = song.genres || [];
+          const lastfmGenres = metadata?.tags || [];
+          const allGenres = [...new Set([...geminiGenres, ...lastfmGenres])].slice(0, 5);
+          const rawLastfmTags = metadata?.rawTags || [];
+
+          const songData = {
+            title: song.title,
+            artistName: song.artistName,
+            youtubeId: song.videoId,
+            nameLower: song.title.toLowerCase(),
+            coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
+            durationSeconds: original?.durationSeconds || 0,
+            album: metadata?.album || null,
+            releaseDate: metadata?.releaseDate || null,
+            genres: allGenres,
+            listeners: metadata?.listeners || 0,
+            mbid: metadata?.mbid || null,
+            tags: rawLastfmTags,
+            searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+
+          const docRef = await this.firestore.collection('songs').add(songData);
+          if (!seenDbIds.has(docRef.id)) {
+            seenDbIds.add(docRef.id);
+            songRefs.push({ songId: docRef.id, rank: index + 1, ...song });
+          }
+        })
+      );
     }
     
     // Save to search cache (only references)
@@ -500,8 +531,12 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
     };
     
     await this.firestore.doc(`youtube_searches/${normalizedQuery}`).set(searchData);
-    
-    return this.enrichSearchResults(searchData);
+
+    const result = await this.enrichSearchResults(searchData);
+    // Populate memory cache
+    const memCacheKey = `yt_search:${normalizedQuery}`;
+    await this.cache.set(memCacheKey, result, 300_000);
+    return result;
   }
 
   private async findSimilarSearch(query: string): Promise<any> {
