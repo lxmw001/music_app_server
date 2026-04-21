@@ -543,18 +543,27 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
   }
 
   async getTrendingMusic(country: string = 'EC', limit: number = 50): Promise<SearchYouTubeResponseDto> {
+    // Always use max limit for cache (slice later)
+    const maxLimit = 50;
+    const cacheKey = `trending_${country}`;
+    
     // Check cache (24 hour TTL)
-    const cacheKey = `trending_${country}_${limit}`;
     const cached = await this.cache.get<SearchYouTubeResponseDto>(cacheKey);
     if (cached) {
       this.logger.log(`Returning cached trending music for ${country}`);
-      return cached;
+      // Slice to requested limit
+      return {
+        songs: cached.songs.slice(0, limit),
+        mixes: cached.mixes.slice(0, limit),
+        videos: cached.videos.slice(0, limit),
+        artists: cached.artists.slice(0, limit),
+      };
     }
 
     this.logger.log(`Getting trending music for ${country} from YouTube`);
 
     // Get trending videos from YouTube
-    const trendingVideos = await this.youtube.getTrendingVideos(country, limit);
+    const trendingVideos = await this.youtube.getTrendingVideos(country, maxLimit);
 
     // Clean with Gemini (same as search)
     const prompt = `Classify YouTube trending music videos into: songs, mixes, videos, artists.
