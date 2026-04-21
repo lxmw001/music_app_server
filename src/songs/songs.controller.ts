@@ -22,6 +22,11 @@ export class SongsController {
     return this.songsService.getTrendingMusic(country || 'EC', limit ? parseInt(limit as any) : 50);
   }
 
+  @Get('search-youtube')
+  searchYouTubeGet(@Query('query') query: string): Promise<SearchYouTubeResponseDto> {
+    return this.songsService.searchYouTube({ query });
+  }
+
   @Get(':id')
   findById(@Param('id') id: string): Promise<SongResponseDto> {
     return this.songsService.findById(id);
@@ -35,11 +40,6 @@ export class SongsController {
   @Post('submit-search')
   submitSearch(@Body() dto: SubmitSearchDto): Promise<{ processed: number; message: string }> {
     return this.songsService.submitSearch(dto);
-  }
-
-  @Get('search-youtube')
-  searchYouTubeGet(@Query('query') query: string): Promise<SearchYouTubeResponseDto> {
-    return this.songsService.searchYouTube({ query });
   }
 
   /**
