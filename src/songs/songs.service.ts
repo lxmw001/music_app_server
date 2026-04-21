@@ -639,8 +639,8 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
       })),
     };
 
-    // Cache for 24 hours (86400000 ms)
-    await this.cache.set(cacheKey, result, 86400000);
+    // Cache for 6 hours (21600000 ms)
+    await this.cache.set(cacheKey, result, 21600000);
     return result;
   }
 
