@@ -386,6 +386,8 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
     
     // Save songs to songs collection (not in search cache)
     const songRefs = [];
+    const seenDbIds = new Set<string>(); // Track DB IDs to avoid duplicates
+    
     for (const [index, song] of (classified.songs || []).entries()) {
       const original = results.find(r => r.videoId === song.videoId);
       
@@ -396,7 +398,11 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
         .get();
       
       if (!existing.empty) {
-        songRefs.push({ songId: existing.docs[0].id, rank: index + 1, ...song });
+        const docId = existing.docs[0].id;
+        if (!seenDbIds.has(docId)) {
+          seenDbIds.add(docId);
+          songRefs.push({ songId: docId, rank: index + 1, ...song });
+        }
       } else {
         // Enrich with Last.fm metadata
         const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
@@ -421,7 +427,11 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
         };
         
         const docRef = await this.firestore.collection('songs').add(songData);
-        songRefs.push({ songId: docRef.id, rank: index + 1, ...song });
+        const docId = docRef.id;
+        if (!seenDbIds.has(docId)) {
+          seenDbIds.add(docId);
+          songRefs.push({ songId: docId, rank: index + 1, ...song });
+        }
       }
     }
     
