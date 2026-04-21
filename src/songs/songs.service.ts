@@ -423,6 +423,9 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
         // Enrich with Last.fm metadata
         const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
         
+        // Pick primary genre from tags (first tag is usually the main genre)
+        const primaryGenre = metadata?.tags?.[0] || null;
+        
         // Create new song
         const songData = {
           title: song.title,
@@ -433,6 +436,7 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
           durationSeconds: original?.durationSeconds || 0,
           album: metadata?.album || null,
           releaseDate: metadata?.releaseDate || null,
+          genre: primaryGenre,
           genres: metadata?.tags || [],
           listeners: metadata?.listeners || 0,
           mbid: metadata?.mbid || null,
