@@ -19,7 +19,7 @@ export class SongsController {
 
   @Get('trending')
   getTrendingMusic(@Query('country') country?: string, @Query('limit') limit?: number): Promise<SearchYouTubeResponseDto> {
-    return this.songsService.getTrendingMusic(country || 'US', limit ? parseInt(limit as any) : 50);
+    return this.songsService.getTrendingMusic(country || 'EC', limit ? parseInt(limit as any) : 50);
   }
 
   @Get(':id')

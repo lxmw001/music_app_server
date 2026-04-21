@@ -542,7 +542,7 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
       .trim();
   }
 
-  async getTrendingMusic(country: string = 'US', limit: number = 50): Promise<SearchYouTubeResponseDto> {
+  async getTrendingMusic(country: string = 'EC', limit: number = 50): Promise<SearchYouTubeResponseDto> {
     this.logger.log(`Getting trending music for ${country}`);
 
     // Get trending videos from YouTube
