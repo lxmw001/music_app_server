@@ -46,7 +46,8 @@ export class LastFmService {
         },
       });
 
-      console.log('Last.fm response:', JSON.stringify(response.data, null, 2));
+      this.logger.log(`Last.fm API response status: ${response.status}`);
+      this.logger.log(`Last.fm API response: ${JSON.stringify(response.data, null, 2)}`);
 
       const track = response.data?.track;
       if (!track) {
@@ -85,8 +86,7 @@ export class LastFmService {
         message: error?.message,
       };
       
-      console.error(`Last.fm API error for "${title}" by ${artist}:`, JSON.stringify(errorDetails, null, 2));
-      this.logger.error(`Last.fm search failed for "${title}" by ${artist}: ${error.message}`);
+      this.logger.error(`Last.fm API error for "${title}" by ${artist}: ${JSON.stringify(errorDetails, null, 2)}`);
       return null;
     }
   }
