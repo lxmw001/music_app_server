@@ -387,81 +387,12 @@ export class SongsService {
       }
     }
 
-    const unknownResults = results.filter(r => !knownSongsMap.has(r.videoId));
-    this.logger.log(
-      `YouTube search: ${results.length} results — ${knownSongsMap.size} already in DB, ${unknownResults.length} new`
-    );
-
-    // Build songRefs for known songs immediately (no Gemini/Last.fm needed)
-    const songRefs: Array<any> = [];
-    const seenDbIds = new Set<string>();
-    let rankCounter = 1;
-
-    for (const result of results) {
-      const known = knownSongsMap.get(result.videoId);
-      if (known && !seenDbIds.has(known.id)) {
-        seenDbIds.add(known.id);
-        songRefs.push({
-          songId: known.id,
-          rank: rankCounter++,
-          videoId: result.videoId,
-          title: known.title,
-          artistName: known.artistName,
-        });
-      }
-    }
-
-    // Only call Gemini if there are unknown results
-    let classifiedMixes: any[] = [];
-    let classifiedVideos: any[] = [];
-    let classifiedArtists: any[] = [];
-
-    if (unknownResults.length > 0) {
-      // --- Step A: check song_duplicates for unknown videoIds ---
-      // Some unknowns may already be recorded as duplicates of existing songs
-      const dedupChecks = await Promise.all(
-        unknownResults.map(r => this.dedup.getCanonicalSongId(r.videoId))
-      );
-      const trulyUnknown = unknownResults.filter((_, i) => !dedupChecks[i]);
-      const knownDuplicates = unknownResults.filter((_, i) => !!dedupChecks[i]);
-
-      for (let i = 0; i < unknownResults.length; i++) {
-        const canonicalId = dedupChecks[i];
-        if (canonicalId && !seenDbIds.has(canonicalId)) {
-          seenDbIds.add(canonicalId);
-          const r = unknownResults[i];
-          songRefs.push({ songId: canonicalId, rank: rankCounter++, videoId: r.videoId, title: r.title, artistName: r.channelTitle });
-        }
-      }
-
-      if (knownDuplicates.length > 0) {
-        this.logger.log(`Skipped ${knownDuplicates.length} known duplicates from song_duplicates cache`);
-      }
-
-      if (trulyUnknown.length > 0) {
-        // --- Step B: code-based dedup before sending to Gemini ---
-        const dedupInput = trulyUnknown.map(r => ({
-          videoId: r.videoId,
-          title: r.title,
-          artistName: r.channelTitle,
-          durationSeconds: r.durationSeconds,
-        }));
-        const { unique: dedupedUnknown, duplicateMap } = this.dedup.deduplicateByCode(dedupInput);
-
-        // Persist code-detected duplicates to song_distinct/song_duplicates async
-        for (const [removedId, keptId] of duplicateMap.entries()) {
-          this.dedup.recordDistinct(removedId, keptId, 'code_dedup_kept_shorter').catch(() => {});
-        }
-
-        this.logger.log(
-          `Code dedup: ${trulyUnknown.length} → ${dedupedUnknown.length} (removed ${duplicateMap.size} duplicates)`
-        );
-
-        // --- Step C: Gemini classification (no dedup instruction needed) ---
-        const prompt = `Classify YouTube music results into: songs, mixes, videos, artists.
+    // Always run Gemini classification on ALL results for correct categorization
+    // (songs vs mixes vs videos vs artists) — Gemini is the source of truth for type
+    const prompt = `Classify YouTube music results into: songs, mixes, videos, artists.
 Rules:
 - Songs: Single music tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist name. Assign 1-3 music genres.
-- Mixes: Playlists, compilations, DJ sets, "Best of" collections.
+- Mixes: Playlists, compilations, DJ sets, "Best of" collections, "Top Hits" collections.
 - Videos: Interviews, behind-the-scenes, live performances (not music videos).
 - Artists: Artist channels or profiles.
 
@@ -473,29 +404,111 @@ Return JSON only:
   "artists": [{"name":"Artist Name"}]
 }
 
-Input: ${JSON.stringify(dedupedUnknown.map(r => ({ videoId: r.videoId, title: r.title, channel: r.artistName, duration: r.durationSeconds })))}`;
+Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
 
-        const text = await this.gemini.generate(prompt);
-        const classified = JSON.parse(this.extractJson(text));
+    const text = await this.gemini.generate(prompt);
+    const classified = JSON.parse(this.extractJson(text));
 
-        classifiedMixes = classified.mixes || [];
-        classifiedVideos = classified.videos || [];
-        classifiedArtists = classified.artists || [];
+    const classifiedMixes: any[] = (classified.mixes || []).map((m, i) => ({
+      ...m,
+      rank: i + 1,
+      thumbnailUrl: results.find(r => r.videoId === m.videoId)?.thumbnailUrl || '',
+    }));
+    const classifiedVideos: any[] = (classified.videos || []).map((v, i) => ({
+      ...v,
+      rank: i + 1,
+      thumbnailUrl: results.find(r => r.videoId === v.videoId)?.thumbnailUrl || '',
+    }));
+    const classifiedArtists: any[] = (classified.artists || []).map((a, i) => ({
+      ...a,
+      rank: i + 1,
+      artistId: null,
+    }));
 
-        const classifiedSongs: any[] = classified.songs || [];
+    // Only process videoIds Gemini classified as songs
+    const classifiedSongVideoIds = new Set((classified.songs || []).map((s: any) => s.videoId));
 
-        // --- Step D: parallel Last.fm enrichment for new songs only ---
-        if (classifiedSongs.length > 0) {
-          this.logger.log(`Enriching ${classifiedSongs.length} new songs with Last.fm (parallel)`);
+    // Split classified songs into known (already in DB) and unknown (need saving)
+    const knownClassifiedSongs = (classified.songs || []).filter((s: any) => knownSongsMap.has(s.videoId));
+    const unknownClassifiedSongs = (classified.songs || []).filter((s: any) => !knownSongsMap.has(s.videoId));
+
+    this.logger.log(
+      `Gemini classified ${classified.songs?.length || 0} songs — ${knownClassifiedSongs.length} already in DB, ${unknownClassifiedSongs.length} new`
+    );
+
+    // Build songRefs for known songs immediately (no Last.fm needed)
+    const songRefs: Array<any> = [];
+    const seenDbIds = new Set<string>();
+    let rankCounter = 1;
+
+    for (const song of knownClassifiedSongs) {
+      const known = knownSongsMap.get(song.videoId);
+      if (known && !seenDbIds.has(known.id)) {
+        seenDbIds.add(known.id);
+        songRefs.push({
+          songId: known.id,
+          rank: rankCounter++,
+          videoId: song.videoId,
+          title: known.title,
+          artistName: known.artistName,
+        });
+      }
+    }
+
+    // Only call Gemini dedup + Last.fm for unknown songs
+    if (unknownClassifiedSongs.length > 0) {
+      // --- Step A: check song_duplicates for unknown videoIds ---
+      const dedupChecks = await Promise.all(
+        unknownClassifiedSongs.map(s => this.dedup.getCanonicalSongId(s.videoId))
+      );
+      const trulyUnknown = unknownClassifiedSongs.filter((_, i) => !dedupChecks[i]);
+      const knownDuplicates = unknownClassifiedSongs.filter((_, i) => !!dedupChecks[i]);
+
+      for (let i = 0; i < unknownClassifiedSongs.length; i++) {
+        const canonicalId = dedupChecks[i];
+        if (canonicalId && !seenDbIds.has(canonicalId)) {
+          seenDbIds.add(canonicalId);
+          const s = unknownClassifiedSongs[i];
+          songRefs.push({ songId: canonicalId, rank: rankCounter++, videoId: s.videoId, title: s.title, artistName: s.artistName });
+        }
+      }
+
+      if (knownDuplicates.length > 0) {
+        this.logger.log(`Skipped ${knownDuplicates.length} known duplicates from song_duplicates cache`);
+      }
+
+      if (trulyUnknown.length > 0) {
+        // --- Step B: code-based dedup ---
+        const dedupInput = trulyUnknown.map(s => ({
+          videoId: s.videoId,
+          title: s.title,
+          artistName: s.artistName,
+          durationSeconds: results.find(r => r.videoId === s.videoId)?.durationSeconds,
+        }));
+        const { unique: dedupedUnknown, duplicateMap } = this.dedup.deduplicateByCode(dedupInput);
+
+        // Persist code-detected duplicates async
+        for (const [removedId, keptId] of duplicateMap.entries()) {
+          this.dedup.recordDistinct(removedId, keptId, 'code_dedup_kept_shorter').catch(() => {});
+        }
+
+        this.logger.log(
+          `Code dedup: ${trulyUnknown.length} → ${dedupedUnknown.length} (removed ${duplicateMap.size} duplicates)`
+        );
+
+        // --- Step C: parallel Last.fm enrichment for new songs only ---
+        if (dedupedUnknown.length > 0) {
+          this.logger.log(`Enriching ${dedupedUnknown.length} new songs with Last.fm (parallel)`);
           const metadataResults = await Promise.all(
-            classifiedSongs.map(song => this.lastfm.searchTrack(song.title, song.artistName))
+            dedupedUnknown.map(song => this.lastfm.searchTrack(song.title, song.artistName))
           );
 
           await Promise.all(
-            classifiedSongs.map(async (song, i) => {
-              const original = trulyUnknown.find(r => r.videoId === song.videoId);
+            dedupedUnknown.map(async (song, i) => {
+              const original = results.find(r => r.videoId === song.videoId);
+              const classifiedSong = unknownClassifiedSongs.find(s => s.videoId === song.videoId);
               const metadata = metadataResults[i];
-              const allGenres = [...new Set([...(song.genres || []), ...(metadata?.tags || [])])].slice(0, 5);
+              const allGenres = [...new Set([...(classifiedSong?.genres || []), ...(metadata?.tags || [])])].slice(0, 5);
 
               const songData = {
                 title: song.title,
@@ -546,21 +559,9 @@ Input: ${JSON.stringify(dedupedUnknown.map(r => ({ videoId: r.videoId, title: r.
         title: s.title,
         artistName: s.artistName,
       })),
-      mixes: classifiedMixes.map((m, i) => ({
-        ...m,
-        rank: i + 1,
-        thumbnailUrl: results.find(r => r.videoId === m.videoId)?.thumbnailUrl || '',
-      })),
-      videos: classifiedVideos.map((v, i) => ({
-        ...v,
-        rank: i + 1,
-        thumbnailUrl: results.find(r => r.videoId === v.videoId)?.thumbnailUrl || '',
-      })),
-      artists: classifiedArtists.map((a, i) => ({
-        ...a,
-        rank: i + 1,
-        artistId: null,
-      })),
+      mixes: classifiedMixes,
+      videos: classifiedVideos,
+      artists: classifiedArtists,
       searchCount: 1,
       lastSearched: new Date(),
       lastUpdated: new Date(),
