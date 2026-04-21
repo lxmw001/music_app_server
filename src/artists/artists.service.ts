@@ -18,6 +18,7 @@ interface ArtistDocument {
 
 interface SongDocument {
   title: string;
+  artistName: string;
   durationSeconds: number;
   coverImageUrl: string | null;
   youtubeId: string | null;
@@ -25,6 +26,7 @@ interface SongDocument {
   artistId: string;
   albumId: string | null;
   genre: string | null;
+  tags: string[];
   createdAt: FirebaseFirestore.Timestamp;
   updatedAt: FirebaseFirestore.Timestamp;
 }
@@ -100,11 +102,13 @@ export class ArtistsService {
         id: doc.id,
         title: data.title,
         artistId: data.artistId,
+        artistName: data.artistName,
         albumId: data.albumId,
         durationSeconds: data.durationSeconds,
         coverImageUrl: data.coverImageUrl,
         youtubeId: data.youtubeId,
         genre: data.genre,
+        tags: data.tags,
       };
     });
   }
