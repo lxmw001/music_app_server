@@ -430,10 +430,13 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
           this.logger.warn(`Last.fm returned no metadata for "${song.title}" by ${song.artistName}`);
         }
         
-        // Merge Gemini genres with Last.fm tags (Gemini first, then Last.fm)
+        // Genres: Gemini + cleaned Last.fm tags
         const geminiGenres = song.genres || [];
-        const lastfmTags = metadata?.tags || [];
-        const allGenres = [...new Set([...geminiGenres, ...lastfmTags])].slice(0, 5);
+        const lastfmGenres = metadata?.tags || [];
+        const allGenres = [...new Set([...geminiGenres, ...lastfmGenres])].slice(0, 5);
+        
+        // Tags: raw Last.fm (unfiltered)
+        const rawLastfmTags = metadata?.rawTags || [];
         
         // Create new song
         const songData = {
@@ -448,7 +451,7 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
           genres: allGenres,
           listeners: metadata?.listeners || 0,
           mbid: metadata?.mbid || null,
-          tags: allGenres,
+          tags: rawLastfmTags,
           searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
           createdAt: new Date(),
           updatedAt: new Date(),

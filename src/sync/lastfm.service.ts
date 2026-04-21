@@ -5,7 +5,8 @@ export interface MusicMetadata {
   album: string;
   albumArt: string;
   releaseDate: string;
-  tags: string[];
+  tags: string[]; // Filtered genres
+  rawTags: string[]; // Unfiltered Last.fm tags
   listeners: number;
   mbid?: string; // MusicBrainz ID
 }
@@ -95,6 +96,7 @@ export class LastFmService {
         albumArt,
         releaseDate: '', // Last.fm doesn't provide release dates
         tags,
+        rawTags,
         listeners: parseInt(track.listeners) || 0,
         mbid: track.mbid || undefined,
       };
