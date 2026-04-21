@@ -60,7 +60,35 @@ export class LastFmService {
                        track.album?.image?.find((img: any) => img.size === 'large')?.['#text'] || '';
 
       // Extract tags/genres
-      const tags = track.toptags?.tag?.slice(0, 5).map((t: any) => t.name) || [];
+      const rawTags = track.toptags?.tag?.slice(0, 10).map((t: any) => t.name) || [];
+      
+      // Filter out non-genre tags (user opinions, years, etc)
+      const invalidPatterns = [
+        /^\d{4}s?$/, // Years like "2010s", "2020"
+        /favorite/i,
+        /best/i,
+        /love/i,
+        /good/i,
+        /great/i,
+        /awesome/i,
+        /perfect/i,
+        /obra de arte/i,
+        /mejor/i,
+        /canción/i,
+        /song/i,
+        /music/i,
+        /^seen live$/i,
+        /^my /i,
+      ];
+      
+      const tags = rawTags.filter(tag => {
+        // Remove if matches any invalid pattern
+        if (invalidPatterns.some(pattern => pattern.test(tag))) {
+          return false;
+        }
+        // Keep if it looks like a genre (lowercase, no special chars except hyphen/space)
+        return /^[a-z\s-]+$/i.test(tag) && tag.length > 2;
+      }).slice(0, 5);
 
       const metadata = {
         album: track.album?.title || '',
