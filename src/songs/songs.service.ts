@@ -11,7 +11,7 @@ import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
 import { SubmitSearchDto } from './dto/submit-search.dto';
 import { SearchYouTubeDto } from './dto/search-youtube.dto';
-import { SearchYouTubeResponseDto } from './dto/search-youtube-response.dto';
+import { SearchYouTubeResponseDto, SearchSongDto } from './dto/search-youtube-response.dto';
 
 interface SongDocument {
   title: string;
@@ -678,7 +678,7 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
     return result;
   }
 
-  async generatePlaylist(songId: string, limit: number = 30): Promise<SongResponseDto[]> {
+  async generatePlaylist(songId: string, limit: number = 30): Promise<SearchSongDto[]> {
     // Check Firestore for saved playlist
     const playlistDoc = await this.firestore.doc(`playlists_generated/${songId}`).get();
     
@@ -713,7 +713,7 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
     const seedSong = seedDoc.data();
     this.logger.log(`Generating playlist based on: ${seedSong.title} by ${seedSong.artistName}`);
 
-    const playlist: SongResponseDto[] = [];
+    const playlist: SearchSongDto[] = [];
     const seenIds = new Set<string>([songId]);
 
     // Use Last.fm Similar Tracks (no YouTube/Gemini needed)
@@ -738,7 +738,7 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
                            this.normalizeArtistName(track.artist);
 
         if (artistMatch && !seenIds.has(doc.id)) {
-          playlist.push(this.mapToSongResponse(doc.id, songData));
+          playlist.push(this.mapToSongResponse(doc.id, songData, playlist.length + 1));
           seenIds.add(doc.id);
           break;
         }
@@ -766,7 +766,7 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
       for (const doc of snapshot.docs) {
         if (playlist.length >= limit) break;
         if (!seenIds.has(doc.id)) {
-          playlist.push(this.mapToSongResponse(doc.id, doc.data()));
+          playlist.push(this.mapToSongResponse(doc.id, doc.data(), playlist.length + 1));
           seenIds.add(doc.id);
         }
       }
@@ -784,18 +784,23 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
     return playlist;
   }
 
-  private mapToSongResponse(id: string, data: any): SongResponseDto {
+  private mapToSongResponse(id: string, data: any, rank: number = 0): SearchSongDto {
     return {
       id,
       title: data.title,
-      artistId: data.artistId,
       artistName: data.artistName,
-      albumId: data.albumId,
-      durationSeconds: data.durationSeconds,
-      coverImageUrl: data.coverImageUrl,
       youtubeId: data.youtubeId,
+      thumbnailUrl: data.coverImageUrl,
+      duration: data.durationSeconds,
+      rank,
+      artistId: data.artistId,
+      albumId: data.albumId,
       genre: data.genre,
       tags: data.tags || [],
+      album: data.album,
+      releaseDate: data.releaseDate,
+      listeners: data.listeners,
+      mbid: data.mbid,
     };
   }
 

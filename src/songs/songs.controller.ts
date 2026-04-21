@@ -5,7 +5,7 @@ import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
 import { SubmitSearchDto } from './dto/submit-search.dto';
 import { SearchYouTubeDto } from './dto/search-youtube.dto';
-import { SearchYouTubeResponseDto } from './dto/search-youtube-response.dto';
+import { SearchYouTubeResponseDto, SearchSongDto } from './dto/search-youtube-response.dto';
 
 @UseGuards(OptionalAuthGuard)
 @Controller('songs')
@@ -33,7 +33,7 @@ export class SongsController {
   }
 
   @Get(':id/generate-playlist')
-  generatePlaylist(@Param('id') id: string, @Query('limit') limit?: number): Promise<SongResponseDto[]> {
+  generatePlaylist(@Param('id') id: string, @Query('limit') limit?: number): Promise<SearchSongDto[]> {
     return this.songsService.generatePlaylist(id, limit ? parseInt(limit as any) : 30);
   }
 
