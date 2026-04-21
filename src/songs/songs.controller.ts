@@ -32,8 +32,16 @@ export class SongsController {
     return this.songsService.submitSearch(dto);
   }
 
+  @Get('search-youtube')
+  searchYouTubeGet(@Query('query') query: string): Promise<SearchYouTubeResponseDto> {
+    return this.songsService.searchYouTube({ query });
+  }
+
+  /**
+   * @deprecated Use GET /songs/search-youtube?query=... instead
+   */
   @Post('search-youtube')
-  searchYouTube(@Body() dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
+  searchYouTubePost(@Body() dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
     return this.songsService.searchYouTube(dto);
   }
 
