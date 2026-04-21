@@ -542,6 +542,87 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
       .trim();
   }
 
+  async getTrendingMusic(country: string = 'US', limit: number = 50): Promise<SearchYouTubeResponseDto> {
+    this.logger.log(`Getting trending music for ${country}`);
+
+    // Get trending videos from YouTube
+    const trendingVideos = await this.youtube.getTrendingVideos(country, limit);
+
+    // Clean with Gemini (same as search)
+    const prompt = `Classify YouTube trending music videos into: songs, mixes, videos, artists.
+Rules:
+- Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist.
+- Mixes: Playlists, compilations, DJ sets
+- Videos: Interviews, behind-scenes, live performances
+- Artists: Artist channels
+- IMPORTANT: Remove duplicates - if same song appears multiple times:
+  * Recognize artist name variations
+  * Keep the version with shortest duration (avoids intros/outros)
+  * Use the shortest/cleanest artist name format
+
+Return JSON:
+{
+  "songs": [{"title":"Song","artistName":"Artist","videoId":"abc"}],
+  "mixes": [{"title":"Mix","videoId":"xyz"}],
+  "videos": [{"title":"Video","videoId":"def"}],
+  "artists": [{"name":"Artist"}]
+}
+
+Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
+
+    const text = await this.gemini.generate(prompt);
+    const classified = JSON.parse(this.extractJson(text));
+
+    // Deduplicate songs
+    const seenSongs = new Map<string, any>();
+    const uniqueSongs = [];
+    for (const song of classified.songs || []) {
+      const key = `${song.title.toLowerCase()}-${this.normalizeArtistName(song.artistName)}`;
+      const existing = seenSongs.get(key);
+      const currentDuration = trendingVideos.find(r => r.videoId === song.videoId)?.durationSeconds || 999999;
+      
+      if (!existing) {
+        seenSongs.set(key, { song, duration: currentDuration });
+        uniqueSongs.push(song);
+      } else if (currentDuration < existing.duration) {
+        const index = uniqueSongs.indexOf(existing.song);
+        uniqueSongs[index] = song;
+        seenSongs.set(key, { song, duration: currentDuration });
+      }
+    }
+
+    // Map to response format
+    const songs = uniqueSongs.map((song, index) => {
+      const video = trendingVideos.find(v => v.videoId === song.videoId);
+      return {
+        title: song.title,
+        artistName: song.artistName,
+        youtubeId: song.videoId,
+        thumbnailUrl: video?.thumbnailUrl || '',
+        duration: video?.durationSeconds || 0,
+        rank: index + 1,
+      };
+    });
+
+    return {
+      songs,
+      mixes: (classified.mixes || []).map((m, i) => ({
+        ...m,
+        rank: i + 1,
+        thumbnailUrl: trendingVideos.find(r => r.videoId === m.videoId)?.thumbnailUrl || '',
+      })),
+      videos: (classified.videos || []).map((v, i) => ({
+        ...v,
+        rank: i + 1,
+        thumbnailUrl: trendingVideos.find(r => r.videoId === v.videoId)?.thumbnailUrl || '',
+      })),
+      artists: (classified.artists || []).map((a, i) => ({
+        ...a,
+        rank: i + 1,
+      })),
+    };
+  }
+
   async generatePlaylist(songId: string, limit: number = 30): Promise<SongResponseDto[]> {
     // Get the seed song
     const seedDoc = await this.firestore.doc(`songs/${songId}`).get();

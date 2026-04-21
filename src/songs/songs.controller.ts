@@ -17,6 +17,11 @@ export class SongsController {
     return this.songsService.findAll(pagination);
   }
 
+  @Get('trending')
+  getTrendingMusic(@Query('country') country?: string, @Query('limit') limit?: number): Promise<SearchYouTubeResponseDto> {
+    return this.songsService.getTrendingMusic(country || 'US', limit ? parseInt(limit as any) : 50);
+  }
+
   @Get(':id')
   findById(@Param('id') id: string): Promise<SongResponseDto> {
     return this.songsService.findById(id);

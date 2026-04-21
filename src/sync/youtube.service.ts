@@ -126,4 +126,55 @@ export class YouTubeService {
     const seconds = parseInt(match[3] ?? '0', 10);
     return hours * 3600 + minutes * 60 + seconds;
   }
+
+  async getTrendingVideos(regionCode: string = 'US', maxResults: number = 50): Promise<YouTubeSearchResult[]> {
+    let lastError: any;
+    
+    // Try all available API keys
+    for (let attempt = 0; attempt < this.apiKeys.length; attempt++) {
+      try {
+        return await this.getTrendingWithCurrentKey(regionCode, maxResults);
+      } catch (error) {
+        lastError = error;
+        
+        if (this.isQuotaError(error)) {
+          this.logger.warn(`API key ${this.currentKeyIndex + 1} quota exceeded`);
+          if (!this.rotateApiKey()) {
+            throw error;
+          }
+          continue;
+        }
+        
+        throw error;
+      }
+    }
+    
+    throw lastError;
+  }
+
+  private async getTrendingWithCurrentKey(regionCode: string, maxResults: number): Promise<YouTubeSearchResult[]> {
+    const apiKey = this.getCurrentApiKey();
+
+    // Get trending videos (music category = 10)
+    const response = await axios.get(YOUTUBE_VIDEOS_URL, {
+      params: {
+        key: apiKey,
+        part: 'snippet,contentDetails',
+        chart: 'mostPopular',
+        regionCode,
+        videoCategoryId: '10', // Music category
+        maxResults,
+      },
+    });
+
+    const items: any[] = response.data.items ?? [];
+
+    return items.map((item: any) => ({
+      videoId: item.id as string,
+      title: item.snippet.title as string,
+      channelTitle: item.snippet.channelTitle as string,
+      thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+      durationSeconds: this.parseDuration(item.contentDetails?.duration ?? ''),
+    }));
+  }
 }
