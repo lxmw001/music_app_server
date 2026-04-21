@@ -784,6 +784,35 @@ Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.
     return playlist;
   }
 
+  async refreshMetadata(songId: string): Promise<{ success: boolean; message: string }> {
+    const doc = await this.firestore.doc(`songs/${songId}`).get();
+    if (!doc.exists) {
+      throw new NotFoundException('Song not found');
+    }
+
+    const song = doc.data();
+    const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
+
+    if (!metadata) {
+      return { success: false, message: 'No metadata found on Last.fm' };
+    }
+
+    const primaryGenre = metadata.tags?.[0] || null;
+
+    await this.firestore.doc(`songs/${songId}`).update({
+      genre: primaryGenre,
+      tags: metadata.tags || [],
+      album: metadata.album || null,
+      listeners: metadata.listeners || 0,
+      mbid: metadata.mbid || null,
+      coverImageUrl: metadata.albumArt || song.coverImageUrl,
+      updatedAt: new Date(),
+    });
+
+    this.logger.log(`Refreshed metadata for song ${songId}: genre=${primaryGenre}, tags=${metadata.tags?.length || 0}`);
+    return { success: true, message: `Updated with genre: ${primaryGenre}, ${metadata.tags?.length || 0} tags` };
+  }
+
   private mapToSongResponse(id: string, data: any, rank: number = 0): SearchSongDto {
     return {
       id,

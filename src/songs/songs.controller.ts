@@ -37,6 +37,11 @@ export class SongsController {
     return this.songsService.generatePlaylist(id, limit ? parseInt(limit as any) : 30);
   }
 
+  @Post(':id/refresh-metadata')
+  refreshMetadata(@Param('id') id: string): Promise<{ success: boolean; message: string }> {
+    return this.songsService.refreshMetadata(id);
+  }
+
   @Post('submit-search')
   submitSearch(@Body() dto: SubmitSearchDto): Promise<{ processed: number; message: string }> {
     return this.songsService.submitSearch(dto);
