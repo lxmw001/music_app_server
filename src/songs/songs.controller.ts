@@ -22,7 +22,7 @@ export class SongsController {
     return this.songsService.findById(id);
   }
 
-  @Post(':id/generate-playlist')
+  @Get(':id/generate-playlist')
   generatePlaylist(@Param('id') id: string, @Query('limit') limit?: number): Promise<SongResponseDto[]> {
     return this.songsService.generatePlaylist(id, limit ? parseInt(limit as any) : 30);
   }
