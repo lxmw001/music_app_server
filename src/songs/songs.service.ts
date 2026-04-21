@@ -583,35 +583,151 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
 
   async getTrendingMusic(country: string = 'EC', limit: number = 50): Promise<SearchYouTubeResponseDto> {
     const maxLimit = 50;
-    const cacheKey = `trending_${country}`;
+    const memCacheKey = `trending_${country}`;
 
-    const cached = await this.cache.get<SearchYouTubeResponseDto>(cacheKey);
-    if (cached) {
-      this.logger.log(`Returning cached trending music for ${country}`);
+    // 1. In-memory cache (fastest — no network)
+    const memCached = await this.cache.get<SearchYouTubeResponseDto>(memCacheKey);
+    if (memCached) {
+      this.logger.log(`Memory cache hit for trending ${country}`);
       return {
-        songs: cached.songs.slice(0, limit),
-        mixes: cached.mixes.slice(0, limit),
-        videos: cached.videos.slice(0, limit),
-        artists: cached.artists.slice(0, limit),
+        songs: memCached.songs.slice(0, limit),
+        mixes: memCached.mixes.slice(0, limit),
+        videos: memCached.videos.slice(0, limit),
+        artists: memCached.artists.slice(0, limit),
       };
     }
 
-    this.logger.log(`Getting trending music for ${country} from YouTube`);
+    // 2. Firestore cache (survives restarts, shared across instances)
+    const firestoreCacheRef = this.firestore.doc(`trending_cache/${country}`);
+    const firestoreCached = await firestoreCacheRef.get();
+    if (firestoreCached.exists) {
+      const data = firestoreCached.data();
+      const lastUpdated = data.lastUpdated?.toDate();
+      const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 6 * 60 * 60 * 1000; // 6h
+
+      if (!isStale) {
+        this.logger.log(`Firestore cache hit for trending ${country}`);
+        const result = data.result as SearchYouTubeResponseDto;
+        await this.cache.set(memCacheKey, result, 21600000);
+        return {
+          songs: result.songs.slice(0, limit),
+          mixes: result.mixes.slice(0, limit),
+          videos: result.videos.slice(0, limit),
+          artists: result.artists.slice(0, limit),
+        };
+      }
+
+      // Stale — return old data immediately, refresh in background
+      this.logger.log(`Stale Firestore cache for trending ${country} — returning stale, refreshing in background`);
+      const staleResult = data.result as SearchYouTubeResponseDto;
+      await this.cache.set(memCacheKey, staleResult, 21600000);
+      this.refreshTrendingCache(country, maxLimit).catch(err =>
+        this.logger.error(`Background trending refresh failed for ${country}: ${err.message}`)
+      );
+      return {
+        songs: staleResult.songs.slice(0, limit),
+        mixes: staleResult.mixes.slice(0, limit),
+        videos: staleResult.videos.slice(0, limit),
+        artists: staleResult.artists.slice(0, limit),
+      };
+    }
+
+    // 3. No cache — fetch fresh
+    const result = await this.refreshTrendingCache(country, maxLimit);
+    return {
+      songs: result.songs.slice(0, limit),
+      mixes: result.mixes.slice(0, limit),
+      videos: result.videos.slice(0, limit),
+      artists: result.artists.slice(0, limit),
+    };
+  }
+
+  private async refreshTrendingCache(country: string, maxLimit: number): Promise<SearchYouTubeResponseDto> {
+    this.logger.log(`Fetching trending music for ${country} from YouTube`);
 
     const trendingVideos = await this.youtube.getTrendingVideos(country, maxLimit);
 
-    const prompt = `Classify YouTube trending music videos into: songs, mixes, videos, artists.
+    // Batch-check known songs and items in parallel
+    const allVideoIds = trendingVideos.map(r => r.videoId);
+    const idChunks = this.chunkArray(allVideoIds, 10);
+
+    const [knownSongSnapshots, knownItemSnapshots] = await Promise.all([
+      Promise.all(idChunks.map(chunk =>
+        this.firestore.collection('songs').where('youtubeId', 'in', chunk).get()
+      )),
+      Promise.all(idChunks.map(chunk =>
+        this.firestore.collection('youtube_items').where('videoId', 'in', chunk).get()
+      )),
+    ]);
+
+    const knownSongsMap = new Map<string, any>();
+    for (const snapshot of knownSongSnapshots) {
+      for (const doc of snapshot.docs) {
+        const data = doc.data();
+        if (data.youtubeId) knownSongsMap.set(data.youtubeId, { id: doc.id, ...data });
+      }
+    }
+
+    const knownItemsMap = new Map<string, any>();
+    for (const snapshot of knownItemSnapshots) {
+      for (const doc of snapshot.docs) {
+        const data = doc.data();
+        if (data.videoId) knownItemsMap.set(data.videoId, data);
+      }
+    }
+
+    const unknownForGemini = trendingVideos.filter(
+      r => !knownSongsMap.has(r.videoId) && !knownItemsMap.has(r.videoId)
+    );
+
+    this.logger.log(
+      `Trending ${country}: ${trendingVideos.length} videos — ${knownSongsMap.size} known songs, ` +
+      `${knownItemsMap.size} known items, ${unknownForGemini.length} need Gemini`
+    );
+
+    // Build result from known items
+    let classifiedMixes: any[] = [];
+    let classifiedVideos: any[] = [];
+    let classifiedArtists: any[] = [];
+    const songRefs: Array<any> = [];
+    const seenDbIds = new Set<string>();
+    let rankCounter = 1;
+    let rankMix = 1, rankVideo = 1, rankArtist = 1;
+
+    for (const video of trendingVideos) {
+      const item = knownItemsMap.get(video.videoId);
+      if (!item) continue;
+      const entry = { title: item.title, videoId: video.videoId, thumbnailUrl: video.thumbnailUrl || item.thumbnailUrl || '' };
+      if (item.type === 'mix') classifiedMixes.push({ ...entry, rank: rankMix++ });
+      else if (item.type === 'video') classifiedVideos.push({ ...entry, rank: rankVideo++ });
+      else if (item.type === 'artist') classifiedArtists.push({ name: item.title, rank: rankArtist++, artistId: null });
+    }
+
+    // Add known songs directly
+    for (const video of trendingVideos) {
+      const known = knownSongsMap.get(video.videoId);
+      if (known && !seenDbIds.has(known.id)) {
+        seenDbIds.add(known.id);
+        songRefs.push({
+          songId: known.id,
+          rank: rankCounter++,
+          videoId: video.videoId,
+          title: known.title,
+          artistName: known.artistName,
+        });
+      }
+    }
+
+    // Classify and enrich unknown videos via Gemini + Last.fm
+    if (unknownForGemini.length > 0) {
+      const prompt = `Classify YouTube trending music videos into: songs, mixes, videos, artists.
 Rules:
 - Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist.
 - Mixes: Playlists, compilations, DJ sets
 - Videos: Interviews, behind-scenes, live performances
 - Artists: Artist channels
-- IMPORTANT: Remove duplicates - if same song appears multiple times:
-  * Recognize artist name variations
-  * Keep the version with shortest duration (avoids intros/outros)
-  * Use the shortest/cleanest artist name format
 
-Return JSON:
+Return JSON only:
 {
   "songs": [{"title":"Song","artistName":"Artist","videoId":"abc"}],
   "mixes": [{"title":"Mix","videoId":"xyz"}],
@@ -619,63 +735,124 @@ Return JSON:
   "artists": [{"name":"Artist"}]
 }
 
-Input: ${JSON.stringify(trendingVideos.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
+Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
 
-    const text = await this.gemini.generate(prompt);
-    const classified = JSON.parse(this.extractJson(text));
+      const text = await this.gemini.generate(prompt);
+      const classified = JSON.parse(this.extractJson(text));
 
-    // Deduplicate songs
-    const seenSongs = new Map<string, any>();
-    const uniqueSongs = [];
-    for (const song of classified.songs || []) {
-      const key = `${song.title.toLowerCase()}-${this.normalizeArtistName(song.artistName)}`;
-      const existing = seenSongs.get(key);
-      const currentDuration = trendingVideos.find(r => r.videoId === song.videoId)?.durationSeconds || 999999;
+      // Merge non-song items
+      const newMixes = (classified.mixes || []).map((m: any) => ({
+        ...m, rank: rankMix++,
+        thumbnailUrl: trendingVideos.find(r => r.videoId === m.videoId)?.thumbnailUrl || '',
+      }));
+      const newVideos = (classified.videos || []).map((v: any) => ({
+        ...v, rank: rankVideo++,
+        thumbnailUrl: trendingVideos.find(r => r.videoId === v.videoId)?.thumbnailUrl || '',
+      }));
+      const newArtists = (classified.artists || []).map((a: any) => ({
+        ...a, rank: rankArtist++, artistId: null,
+      }));
 
-      if (!existing) {
-        seenSongs.set(key, { song, duration: currentDuration });
-        uniqueSongs.push(song);
-      } else if (currentDuration < existing.duration) {
-        const index = uniqueSongs.indexOf(existing.song);
-        uniqueSongs[index] = song;
-        seenSongs.set(key, { song, duration: currentDuration });
+      classifiedMixes = [...classifiedMixes, ...newMixes];
+      classifiedVideos = [...classifiedVideos, ...newVideos];
+      classifiedArtists = [...classifiedArtists, ...newArtists];
+
+      // Persist new non-song items
+      const itemsToSave = [
+        ...newMixes.map(m => ({ videoId: m.videoId, type: 'mix', title: m.title, thumbnailUrl: m.thumbnailUrl })),
+        ...newVideos.map(v => ({ videoId: v.videoId, type: 'video', title: v.title, thumbnailUrl: v.thumbnailUrl })),
+      ].filter(item => item.videoId);
+
+      Promise.all(
+        itemsToSave.map(item =>
+          this.firestore.doc(`youtube_items/${item.videoId}`).set({ ...item, seenAt: new Date() })
+        )
+      ).catch(() => {});
+
+      // Enrich new songs with Last.fm and save to songs collection
+      const newSongs: any[] = classified.songs || [];
+      if (newSongs.length > 0) {
+        this.logger.log(`Enriching ${newSongs.length} trending songs with Last.fm (parallel)`);
+        const metadataResults = await Promise.all(
+          newSongs.map(song => this.lastfm.searchTrack(song.title, song.artistName))
+        );
+
+        await Promise.all(
+          newSongs.map(async (song, i) => {
+            const original = trendingVideos.find(r => r.videoId === song.videoId);
+            const metadata = metadataResults[i];
+            const allGenres = [...new Set([...(metadata?.tags || [])])].slice(0, 5);
+
+            const songData = {
+              title: song.title,
+              artistName: song.artistName,
+              youtubeId: song.videoId,
+              nameLower: song.title.toLowerCase(),
+              coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
+              durationSeconds: original?.durationSeconds || 0,
+              album: metadata?.album || null,
+              releaseDate: metadata?.releaseDate || null,
+              genres: allGenres,
+              listeners: metadata?.listeners || 0,
+              mbid: metadata?.mbid || null,
+              tags: metadata?.rawTags || [],
+              searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+
+            const docRef = await this.firestore.collection('songs').add(songData);
+            if (!seenDbIds.has(docRef.id)) {
+              seenDbIds.add(docRef.id);
+              songRefs.push({ songId: docRef.id, rank: rankCounter++, videoId: song.videoId, title: song.title, artistName: song.artistName });
+            }
+          })
+        );
       }
     }
 
-    const songs = uniqueSongs.map((song, index) => {
-      const video = trendingVideos.find(v => v.videoId === song.videoId);
-      return {
-        title: song.title,
-        artistName: song.artistName,
-        youtubeId: song.videoId,
-        thumbnailUrl: video?.thumbnailUrl || '',
-        duration: video?.durationSeconds || 0,
-        rank: index + 1,
-        genres: [],
-        tags: [],
-      };
-    });
+    // Enrich songRefs with full song data for response
+    const enrichedSongs = await Promise.all(
+      songRefs.map(async s => {
+        if (s.songId) {
+          const doc = await this.firestore.doc(`songs/${s.songId}`).get();
+          if (doc.exists) {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              title: data.title,
+              artistName: data.artistName,
+              youtubeId: s.videoId,
+              thumbnailUrl: data.coverImageUrl || '',
+              duration: data.durationSeconds || 0,
+              rank: s.rank,
+              genres: data.genres || [],
+              tags: data.tags || [],
+              album: data.album,
+              listeners: data.listeners,
+            };
+          }
+        }
+        return { ...s, genres: [], tags: [] };
+      })
+    );
 
-    const result = {
-      songs,
-      mixes: (classified.mixes || []).map((m, i) => ({
-        ...m,
-        rank: i + 1,
-        thumbnailUrl: trendingVideos.find(r => r.videoId === m.videoId)?.thumbnailUrl || '',
-      })),
-      videos: (classified.videos || []).map((v, i) => ({
-        ...v,
-        rank: i + 1,
-        thumbnailUrl: trendingVideos.find(r => r.videoId === v.videoId)?.thumbnailUrl || '',
-      })),
-      artists: (classified.artists || []).map((a, i) => ({
-        ...a,
-        rank: i + 1,
-      })),
+    const result: SearchYouTubeResponseDto = {
+      songs: enrichedSongs,
+      mixes: classifiedMixes,
+      videos: classifiedVideos,
+      artists: classifiedArtists,
     };
 
-    // Cache for 6 hours
-    await this.cache.set(cacheKey, result, 21600000);
+    // Persist to Firestore cache (survives restarts)
+    await this.firestore.doc(`trending_cache/${country}`).set({
+      result,
+      lastUpdated: new Date(),
+    });
+
+    // Populate in-memory cache
+    await this.cache.set(`trending_${country}`, result, 21600000);
+
     return result;
   }
 
