@@ -12,9 +12,4 @@ export class SearchController {
   search(@Query() dto: SearchQueryDto): Promise<SearchResults> {
     return this.searchService.search(dto.q);
   }
-
-  @Get('ai')
-  aiSearch(@Query() dto: SearchQueryDto): Promise<any> {
-    return this.searchService.aiSearch(dto.q);
-  }
 }

@@ -47,14 +47,70 @@ export class GeminiService {
   async generate(prompt: string): Promise<string> {
     if (!this.genAI) throw new Error('Gemini API not initialized');
     
+    const genAI = this.genAI;
     const result = await this.callWithRateLimit(() => 
-      this.genAI.models.generateContent({
+      genAI.models.generateContent({
         model: this.modelName,
         contents: prompt,
       })
     );
     
-    return result.text;
+    return result.text ?? '';
+  }
+
+  /**
+   * Parse natural language search intent from a query.
+   * Returns structured params if the query is natural language,
+   * or null if it's a simple keyword/name query (skip Gemini).
+   */
+  async parseSearchIntent(query: string): Promise<{
+    refinedQuery: string;
+    genre?: string;
+    mood?: string;
+    artist?: string;
+    year?: number;
+    tags?: string[];
+    isNaturalLanguage: boolean;
+  } | null> {
+    // Heuristic: skip Gemini for short simple queries (likely artist/song names)
+    const words = query.trim().split(/\s+/);
+    const naturalLanguageIndicators = [
+      'songs', 'music', 'tracks', 'playlist', 'like', 'similar', 'for', 'when',
+      'mood', 'feel', 'vibe', 'style', 'type', 'kind', 'genre', 'from', 'about',
+      'workout', 'party', 'relax', 'sad', 'happy', 'upbeat', 'chill', 'romantic',
+    ];
+    const lowerQuery = query.toLowerCase();
+    const looksNatural = words.length >= 3 ||
+      naturalLanguageIndicators.some(w => lowerQuery.includes(w));
+
+    if (!looksNatural || !this.genAI) return null;
+
+    try {
+      const prompt = `Analyze this music search query and extract structured intent.
+Query: "${query}"
+
+Return JSON only:
+{
+  "refinedQuery": "simplified search term for YouTube (artist name or song title)",
+  "genre": "music genre if mentioned or implied (null if not)",
+  "mood": "mood/vibe if mentioned (null if not)",
+  "artist": "artist name if mentioned (null if not)",
+  "year": null,
+  "tags": ["relevant tags like 'workout', 'party', 'romantic' if implied"],
+  "isNaturalLanguage": true/false
+}
+
+Examples:
+- "bad bunny" → isNaturalLanguage: false, refinedQuery: "bad bunny"
+- "sad reggaeton songs" → isNaturalLanguage: true, genre: "reggaeton", mood: "sad", refinedQuery: "reggaeton"
+- "music for working out" → isNaturalLanguage: true, tags: ["workout"], refinedQuery: "workout music"`;
+
+      const text = await this.generate(prompt);
+      const parsed = JSON.parse(this.extractJson(text));
+      return parsed;
+    } catch {
+      return null; // Fall back to regular search on any error
+    }
   }
 
   async getPopularGenres(country?: string): Promise<string[]> {

@@ -1,10 +1,8 @@
-import { Controller, Get, Param, Query, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Post, UseGuards } from '@nestjs/common';
 import { OptionalAuthGuard } from '../auth/optional-auth.guard';
 import { SongsService } from './songs.service';
 import { PaginationDto } from './dto/pagination.dto';
 import { SongResponseDto } from './dto/song-response.dto';
-import { SubmitSearchDto } from './dto/submit-search.dto';
-import { SearchYouTubeDto } from './dto/search-youtube.dto';
 import { SearchYouTubeResponseDto, SearchSongDto } from './dto/search-youtube-response.dto';
 
 @UseGuards(OptionalAuthGuard)
@@ -18,12 +16,15 @@ export class SongsController {
   }
 
   @Get('trending')
-  getTrendingMusic(@Query('country') country?: string, @Query('limit') limit?: number): Promise<SearchYouTubeResponseDto> {
+  getTrendingMusic(
+    @Query('country') country?: string,
+    @Query('limit') limit?: number,
+  ): Promise<SearchYouTubeResponseDto> {
     return this.songsService.getTrendingMusic(country || 'EC', limit ? parseInt(limit as any) : 50);
   }
 
   @Get('search-youtube')
-  searchYouTubeGet(@Query('query') query: string): Promise<SearchYouTubeResponseDto> {
+  searchYouTube(@Query('query') query: string): Promise<SearchYouTubeResponseDto> {
     return this.songsService.searchYouTube({ query });
   }
 
@@ -33,30 +34,15 @@ export class SongsController {
   }
 
   @Get(':id/generate-playlist')
-  generatePlaylist(@Param('id') id: string, @Query('limit') limit?: number): Promise<SearchSongDto[]> {
+  generatePlaylist(
+    @Param('id') id: string,
+    @Query('limit') limit?: number,
+  ): Promise<SearchSongDto[]> {
     return this.songsService.generatePlaylist(id, limit ? parseInt(limit as any) : 30);
   }
 
   @Post(':id/refresh-metadata')
   refreshMetadata(@Param('id') id: string): Promise<{ success: boolean; message: string }> {
     return this.songsService.refreshMetadata(id);
-  }
-
-  @Post('submit-search')
-  submitSearch(@Body() dto: SubmitSearchDto): Promise<{ processed: number; message: string }> {
-    return this.songsService.submitSearch(dto);
-  }
-
-  /**
-   * @deprecated Use GET /songs/search-youtube?query=... instead
-   */
-  @Post('search-youtube')
-  searchYouTubePost(@Body() dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
-    return this.songsService.searchYouTube(dto);
-  }
-
-  @Post('clean-youtube-results')
-  cleanYouTubeResults(@Body() body: { results: any[] }) {
-    return this.songsService.cleanYouTubeResults(body.results);
   }
 }
