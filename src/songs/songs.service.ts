@@ -364,9 +364,58 @@ export class SongsService {
   private async refreshSearchCache(dto: SearchYouTubeDto, normalizedQuery: string): Promise<SearchYouTubeResponseDto> {
     // YouTube search
     const results = await this.youtube.searchVideos(dto.query, 20);
-    
-    // Gemini classification
-    const prompt = `Classify YouTube results into: songs, mixes, videos, artists.
+
+    // --- OPTIMIZATION: check which videoIds are already in Firestore ---
+    // Batch query by youtubeId (exact match, no Gemini/Last.fm needed for known songs)
+    const allVideoIds = results.map(r => r.videoId);
+    const knownSongsMap = new Map<string, any>(); // videoId → song doc data
+
+    const idChunks = this.chunkArray(allVideoIds, 10); // Firestore `in` max = 10
+    const knownSnapshots = await Promise.all(
+      idChunks.map(chunk =>
+        this.firestore.collection('songs').where('youtubeId', 'in', chunk).get()
+      )
+    );
+    for (const snapshot of knownSnapshots) {
+      for (const doc of snapshot.docs) {
+        const data = doc.data();
+        if (data.youtubeId) {
+          knownSongsMap.set(data.youtubeId, { id: doc.id, ...data });
+        }
+      }
+    }
+
+    const unknownResults = results.filter(r => !knownSongsMap.has(r.videoId));
+    this.logger.log(
+      `YouTube search: ${results.length} results — ${knownSongsMap.size} already in DB, ${unknownResults.length} new`
+    );
+
+    // Build songRefs for known songs immediately (no Gemini/Last.fm needed)
+    const songRefs: Array<any> = [];
+    const seenDbIds = new Set<string>();
+    let rankCounter = 1;
+
+    for (const result of results) {
+      const known = knownSongsMap.get(result.videoId);
+      if (known && !seenDbIds.has(known.id)) {
+        seenDbIds.add(known.id);
+        songRefs.push({
+          songId: known.id,
+          rank: rankCounter++,
+          videoId: result.videoId,
+          title: known.title,
+          artistName: known.artistName,
+        });
+      }
+    }
+
+    // Only call Gemini if there are unknown results
+    let classifiedMixes: any[] = [];
+    let classifiedVideos: any[] = [];
+    let classifiedArtists: any[] = [];
+
+    if (unknownResults.length > 0) {
+      const prompt = `Classify YouTube results into: songs, mixes, videos, artists.
 Rules:
 - Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist. Assign 1-3 music genres (e.g., reggaeton, rock, pop, hip hop, electronic, latin, bachata, salsa, etc.)
 - Mixes: Playlists, compilations, DJ sets
@@ -385,116 +434,71 @@ Return JSON:
   "artists": [{"name":"Artist"}]
 }
 
-Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
+Input: ${JSON.stringify(unknownResults.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
 
-    const text = await this.gemini.generate(prompt);
-    const classified = JSON.parse(this.extractJson(text));
-    
-    // Deduplicate songs by title+artist (backup in case Gemini doesn't)
-    // Prefer shorter durations (avoids intros/outros)
-    const seenSongs = new Map<string, any>();
-    const uniqueSongs = [];
-    for (const song of classified.songs || []) {
-      const key = `${song.title.toLowerCase()}-${this.normalizeArtistName(song.artistName)}`;
-      const existing = seenSongs.get(key);
-      const currentDuration = results.find(r => r.videoId === song.videoId)?.durationSeconds || 999999;
-      
-      if (!existing) {
-        seenSongs.set(key, { song, duration: currentDuration });
-        uniqueSongs.push(song);
-      } else if (currentDuration < existing.duration) {
-        // Replace with shorter version
-        const index = uniqueSongs.indexOf(existing.song);
-        uniqueSongs[index] = song;
-        seenSongs.set(key, { song, duration: currentDuration });
-      }
-    }
-    classified.songs = uniqueSongs;
-    
-    // Save songs to songs collection (not in search cache)
-    const songRefs = [];
-    const seenDbIds = new Set<string>(); // Track DB IDs to avoid duplicates
+      const text = await this.gemini.generate(prompt);
+      const classified = JSON.parse(this.extractJson(text));
 
-    // --- OPTIMIZATION: batch Firestore duplicate checks ---
-    // Collect all title prefixes and run parallel prefix queries
-    const songCandidateSnapshots = await Promise.all(
-      (classified.songs || []).map(song =>
-        this.firestore.collection('songs')
-          .where('nameLower', '>=', song.title.toLowerCase().substring(0, 3))
-          .where('nameLower', '<=', song.title.toLowerCase().substring(0, 3) + '\uf8ff')
-          .limit(20)
-          .get()
-      )
-    );
+      classifiedMixes = classified.mixes || [];
+      classifiedVideos = classified.videos || [];
+      classifiedArtists = classified.artists || [];
 
-    // Identify which songs are new (no DB match)
-    const newSongs: Array<{ song: any; original: any; index: number }> = [];
-    for (const [index, song] of (classified.songs || []).entries()) {
-      const original = results.find(r => r.videoId === song.videoId);
-      const searchString = `${song.title} ${song.artistName}`.toLowerCase();
-      const candidatesSnapshot = songCandidateSnapshots[index];
-
-      let bestMatch = null;
-      let bestSimilarity = 0;
-      for (const doc of candidatesSnapshot.docs) {
-        const data = doc.data();
-        const candidateString = `${data.title} ${data.artistName}`.toLowerCase();
-        const similarity = this.calculateSimilarity(searchString, candidateString);
-        if (similarity > bestSimilarity && similarity >= 0.85) {
-          bestSimilarity = similarity;
-          bestMatch = doc;
+      // Deduplicate classified songs
+      const seenSongs = new Map<string, any>();
+      const uniqueSongs: any[] = [];
+      for (const song of classified.songs || []) {
+        const key = `${song.title.toLowerCase()}-${this.normalizeArtistName(song.artistName)}`;
+        const existing = seenSongs.get(key);
+        const currentDuration = unknownResults.find(r => r.videoId === song.videoId)?.durationSeconds || 999999;
+        if (!existing) {
+          seenSongs.set(key, { song, duration: currentDuration });
+          uniqueSongs.push(song);
+        } else if (currentDuration < existing.duration) {
+          const index = uniqueSongs.indexOf(existing.song);
+          uniqueSongs[index] = song;
+          seenSongs.set(key, { song, duration: currentDuration });
         }
       }
 
-      if (bestMatch && !seenDbIds.has(bestMatch.id)) {
-        seenDbIds.add(bestMatch.id);
-        songRefs.push({ songId: bestMatch.id, rank: index + 1, ...song });
-      } else if (!bestMatch) {
-        newSongs.push({ song, original, index });
+      // Parallel Last.fm enrichment only for truly new songs
+      if (uniqueSongs.length > 0) {
+        this.logger.log(`Enriching ${uniqueSongs.length} new songs with Last.fm (parallel)`);
+        const metadataResults = await Promise.all(
+          uniqueSongs.map(song => this.lastfm.searchTrack(song.title, song.artistName))
+        );
+
+        await Promise.all(
+          uniqueSongs.map(async (song, i) => {
+            const original = unknownResults.find(r => r.videoId === song.videoId);
+            const metadata = metadataResults[i];
+            const allGenres = [...new Set([...(song.genres || []), ...(metadata?.tags || [])])].slice(0, 5);
+
+            const songData = {
+              title: song.title,
+              artistName: song.artistName,
+              youtubeId: song.videoId,
+              nameLower: song.title.toLowerCase(),
+              coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
+              durationSeconds: original?.durationSeconds || 0,
+              album: metadata?.album || null,
+              releaseDate: metadata?.releaseDate || null,
+              genres: allGenres,
+              listeners: metadata?.listeners || 0,
+              mbid: metadata?.mbid || null,
+              tags: metadata?.rawTags || [],
+              searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+
+            const docRef = await this.firestore.collection('songs').add(songData);
+            if (!seenDbIds.has(docRef.id)) {
+              seenDbIds.add(docRef.id);
+              songRefs.push({ songId: docRef.id, rank: rankCounter++, videoId: song.videoId, title: song.title, artistName: song.artistName });
+            }
+          })
+        );
       }
-    }
-
-    // --- OPTIMIZATION: parallel Last.fm calls for all new songs ---
-    if (newSongs.length > 0) {
-      this.logger.log(`Enriching ${newSongs.length} new songs with Last.fm (parallel)`);
-      const metadataResults = await Promise.all(
-        newSongs.map(({ song }) => this.lastfm.searchTrack(song.title, song.artistName))
-      );
-
-      // Save all new songs in parallel
-      await Promise.all(
-        newSongs.map(async ({ song, original, index }, i) => {
-          const metadata = metadataResults[i];
-          const geminiGenres = song.genres || [];
-          const lastfmGenres = metadata?.tags || [];
-          const allGenres = [...new Set([...geminiGenres, ...lastfmGenres])].slice(0, 5);
-          const rawLastfmTags = metadata?.rawTags || [];
-
-          const songData = {
-            title: song.title,
-            artistName: song.artistName,
-            youtubeId: song.videoId,
-            nameLower: song.title.toLowerCase(),
-            coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
-            durationSeconds: original?.durationSeconds || 0,
-            album: metadata?.album || null,
-            releaseDate: metadata?.releaseDate || null,
-            genres: allGenres,
-            listeners: metadata?.listeners || 0,
-            mbid: metadata?.mbid || null,
-            tags: rawLastfmTags,
-            searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-
-          const docRef = await this.firestore.collection('songs').add(songData);
-          if (!seenDbIds.has(docRef.id)) {
-            seenDbIds.add(docRef.id);
-            songRefs.push({ songId: docRef.id, rank: index + 1, ...song });
-          }
-        })
-      );
     }
     
     // Save to search cache (only references)
@@ -509,17 +513,17 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
         title: s.title,
         artistName: s.artistName,
       })),
-      mixes: (classified.mixes || []).map((m, i) => ({
+      mixes: classifiedMixes.map((m, i) => ({
         ...m,
         rank: i + 1,
         thumbnailUrl: results.find(r => r.videoId === m.videoId)?.thumbnailUrl || '',
       })),
-      videos: (classified.videos || []).map((v, i) => ({
+      videos: classifiedVideos.map((v, i) => ({
         ...v,
         rank: i + 1,
         thumbnailUrl: results.find(r => r.videoId === v.videoId)?.thumbnailUrl || '',
       })),
-      artists: (classified.artists || []).map((a, i) => ({
+      artists: classifiedArtists.map((a, i) => ({
         ...a,
         rank: i + 1,
         artistId: null,
