@@ -307,7 +307,7 @@ export class SongsService {
     // Check exact cache match
     let cached = await this.firestore.doc(`youtube_searches/${normalizedQuery}`).get();
     
-    // If no exact match, try fuzzy search
+    // If no exact match, try fuzzy search on similar queries
     if (!cached.exists) {
       const fuzzyMatch = await this.findSimilarSearch(dto.query);
       if (fuzzyMatch) {
@@ -391,19 +391,35 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
     for (const [index, song] of (classified.songs || []).entries()) {
       const original = results.find(r => r.videoId === song.videoId);
       
-      // Check if song already exists by youtubeId
-      const existing = await this.firestore.collection('songs')
-        .where('youtubeId', '==', song.videoId)
-        .limit(1)
+      // Use fuzzy matching to find similar songs (title + artist)
+      const searchString = `${song.title} ${song.artistName}`.toLowerCase();
+      const normalizedArtist = this.normalizeArtistName(song.artistName);
+      
+      // Get songs by similar artist name first (more efficient than scanning all)
+      const candidatesSnapshot = await this.firestore.collection('songs')
+        .where('nameLower', '>=', song.title.toLowerCase().substring(0, 3))
+        .where('nameLower', '<=', song.title.toLowerCase().substring(0, 3) + '\uf8ff')
+        .limit(20)
         .get();
       
-      if (!existing.empty) {
-        const docId = existing.docs[0].id;
-        if (!seenDbIds.has(docId)) {
-          seenDbIds.add(docId);
-          songRefs.push({ songId: docId, rank: index + 1, ...song });
+      let bestMatch = null;
+      let bestSimilarity = 0;
+      
+      for (const doc of candidatesSnapshot.docs) {
+        const data = doc.data();
+        const candidateString = `${data.title} ${data.artistName}`.toLowerCase();
+        const similarity = this.calculateSimilarity(searchString, candidateString);
+        
+        if (similarity > bestSimilarity && similarity >= 0.85) { // 85% similarity threshold
+          bestSimilarity = similarity;
+          bestMatch = doc;
         }
-      } else {
+      }
+      
+      if (bestMatch && !seenDbIds.has(bestMatch.id)) {
+        seenDbIds.add(bestMatch.id);
+        songRefs.push({ songId: bestMatch.id, rank: index + 1, ...song });
+      } else if (!bestMatch) {
         // Enrich with Last.fm metadata
         const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
         
@@ -475,63 +491,46 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
 
   private async findSimilarSearch(query: string): Promise<any> {
     const queryLower = query.toLowerCase();
+    this.logger.log(`Searching for similar queries to: "${queryLower}"`);
     
     // Get recent searches (limit 100 for performance)
+    // Use createdAt as fallback if lastSearched doesn't exist
     const snapshot = await this.firestore.collection('youtube_searches')
-      .orderBy('lastSearched', 'desc')
+      .orderBy('createdAt', 'desc')
       .limit(100)
       .get();
+    
+    this.logger.log(`Found ${snapshot.size} cached searches to compare`);
+    
+    let bestMatch = null;
+    let bestSimilarity = 0;
     
     for (const doc of snapshot.docs) {
       const data = doc.data();
       const variations = data.variations || [data.query?.toLowerCase()];
       
-      // Check if any variation is similar
+      // Check similarity with all variations
       for (const variation of variations) {
-        if (this.isSimilar(queryLower, variation)) {
-          return doc;
+        if (!variation) continue;
+        
+        const similarity = this.calculateSimilarity(queryLower, variation);
+        
+        this.logger.debug(`Comparing "${queryLower}" vs "${variation}": ${Math.round(similarity * 100)}%`);
+        
+        if (similarity > bestSimilarity && similarity >= 0.85) { // 85% similarity threshold
+          bestSimilarity = similarity;
+          bestMatch = doc;
         }
       }
     }
     
-    return null;
-  }
-
-  private isSimilar(str1: string, str2: string): boolean {
-    // Levenshtein distance threshold
-    const distance = this.levenshteinDistance(str1, str2);
-    const maxLength = Math.max(str1.length, str2.length);
-    const similarity = 1 - distance / maxLength;
-    
-    return similarity >= 0.85; // 85% similar
-  }
-
-  private levenshteinDistance(str1: string, str2: string): number {
-    const matrix = [];
-    
-    for (let i = 0; i <= str2.length; i++) {
-      matrix[i] = [i];
+    if (bestMatch) {
+      this.logger.log(`✓ Found similar search: "${query}" matched "${bestMatch.data().query}" (${Math.round(bestSimilarity * 100)}% similar)`);
+    } else {
+      this.logger.log(`✗ No similar search found for "${query}"`);
     }
     
-    for (let j = 0; j <= str1.length; j++) {
-      matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= str2.length; i++) {
-      for (let j = 1; j <= str1.length; j++) {
-        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1
-          );
-        }
-      }
-    }
-    
-    return matrix[str2.length][str1.length];
+    return bestMatch;
   }
 
   private normalizeSearchQuery(query: string): string {
@@ -554,6 +553,23 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
       .replace(/[^\w\s]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  private calculateSimilarity(str1: string, str2: string): number {
+    // Simple Dice coefficient for fuzzy matching
+    const bigrams1 = this.getBigrams(str1);
+    const bigrams2 = this.getBigrams(str2);
+    
+    const intersection = bigrams1.filter(b => bigrams2.includes(b)).length;
+    return (2 * intersection) / (bigrams1.length + bigrams2.length);
+  }
+
+  private getBigrams(str: string): string[] {
+    const bigrams = [];
+    for (let i = 0; i < str.length - 1; i++) {
+      bigrams.push(str.substring(i, i + 2));
+    }
+    return bigrams;
   }
 
   async getTrendingMusic(country: string = 'EC', limit: number = 50): Promise<SearchYouTubeResponseDto> {
