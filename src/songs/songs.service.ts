@@ -341,7 +341,7 @@ export class SongsService {
     // Gemini classification
     const prompt = `Classify YouTube results into: songs, mixes, videos, artists.
 Rules:
-- Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist.
+- Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist. Assign 1-3 music genres (e.g., reggaeton, rock, pop, hip hop, electronic, latin, bachata, salsa, etc.)
 - Mixes: Playlists, compilations, DJ sets
 - Videos: Interviews, behind-scenes, live performances
 - Artists: Artist channels
@@ -352,7 +352,7 @@ Rules:
 
 Return JSON:
 {
-  "songs": [{"title":"Song","artistName":"Artist","videoId":"abc"}],
+  "songs": [{"title":"Song","artistName":"Artist","videoId":"abc","genres":["genre1","genre2"]}],
   "mixes": [{"title":"Mix","videoId":"xyz"}],
   "videos": [{"title":"Video","videoId":"def"}],
   "artists": [{"name":"Artist"}]
@@ -430,8 +430,10 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
           this.logger.warn(`Last.fm returned no metadata for "${song.title}" by ${song.artistName}`);
         }
         
-        // Use tags as genres
-        const genres = metadata?.tags || [];
+        // Merge Gemini genres with Last.fm tags (Gemini first, then Last.fm)
+        const geminiGenres = song.genres || [];
+        const lastfmTags = metadata?.tags || [];
+        const allGenres = [...new Set([...geminiGenres, ...lastfmTags])].slice(0, 5);
         
         // Create new song
         const songData = {
@@ -443,10 +445,10 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
           durationSeconds: original?.durationSeconds || 0,
           album: metadata?.album || null,
           releaseDate: metadata?.releaseDate || null,
-          genres,
+          genres: allGenres,
           listeners: metadata?.listeners || 0,
           mbid: metadata?.mbid || null,
-          tags: metadata?.tags || [],
+          tags: allGenres,
           searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
           createdAt: new Date(),
           updatedAt: new Date(),
