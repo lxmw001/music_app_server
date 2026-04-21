@@ -537,8 +537,12 @@ Input: ${JSON.stringify(results.map(r => ({ videoId: r.videoId, title: r.title, 
   private normalizeArtistName(artist: string): string {
     return artist
       .toLowerCase()
-      .replace(/^(el|la|los|las|the)\s+/i, '') // Remove articles only
+      .normalize('NFD') // Decompose accents
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents (América → America)
+      .replace(/^(el|la|los|las|the)\s+/i, '') // Remove articles
+      .replace(/\s+de\s+/gi, ' ') // Remove "de" (Binomio de Oro → Binomio Oro)
       .replace(/[^\w\s]/g, '')
+      .replace(/\s+/g, ' ')
       .trim();
   }
 
