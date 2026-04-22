@@ -891,8 +891,8 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     const playlist: SearchSongDto[] = [];
     const seenIds = new Set<string>([songId]);
 
-    // Get related videos from YouTube
-    const relatedVideos = await this.youtube.getRelatedVideos(seedSong.youtubeId, limit * 2);
+    // Get artist's best songs from YouTube using artistName from Firestore (no extra API call)
+    const relatedVideos = await this.youtube.getRelatedVideos(seedSong.artistName, limit * 2);
     
     // Clean and classify with Gemini
     const prompt = `Classify YouTube results into: songs, mixes, videos, artists.

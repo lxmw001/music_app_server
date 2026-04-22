@@ -178,12 +178,13 @@ export class YouTubeService {
     }));
   }
 
-  async getRelatedVideos(videoId: string, maxResults: number = 30): Promise<YouTubeSearchResult[]> {
+  async getRelatedVideos(artistName: string, maxResults: number = 30): Promise<YouTubeSearchResult[]> {
     let lastError: any;
-    
+
     for (let attempt = 0; attempt < this.apiKeys.length; attempt++) {
       try {
-        return await this.getRelatedWithCurrentKey(videoId, maxResults);
+        this.logger.log(`Getting best songs for artist: ${artistName}`);
+        return await this.searchWithCurrentKey(`${artistName} best songs`, maxResults);
       } catch (error) {
         lastError = error;
         if (this.isQuotaError(error)) {
@@ -195,26 +196,5 @@ export class YouTubeService {
       }
     }
     throw lastError;
-  }
-
-  private async getRelatedWithCurrentKey(videoId: string, maxResults: number): Promise<YouTubeSearchResult[]> {
-    const apiKey = this.getCurrentApiKey();
-
-    // Fetch the video's channel name, then search for the artist's best songs
-    try {
-      const videoResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
-        params: { key: apiKey, id: videoId, part: 'snippet' },
-      });
-      const videoData = videoResponse.data.items?.[0];
-      if (videoData) {
-        const channel = videoData.snippet.channelTitle;
-        this.logger.log(`Getting best songs for artist: ${channel}`);
-        return this.searchWithCurrentKey(`${channel} best songs`, maxResults);
-      }
-    } catch (error) {
-      this.logger.warn(`getRelatedVideos failed for ${videoId}: ${(error as Error).message}`);
-    }
-
-    return [];
   }
 }
