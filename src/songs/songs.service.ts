@@ -1005,6 +1005,76 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     return { success: true, message: `Updated with ${genres.length} genres, ${metadata.tags?.length || 0} tags` };
   }
 
+  async backfillVideoTitles(): Promise<{ processed: number; skipped: number; failed: number }> {
+    this.logger.log('Starting videoTitle backfill for songs missing the field');
+
+    let processed = 0;
+    let skipped = 0;
+    let failed = 0;
+    let lastDoc: any = null;
+    const batchSize = 50;
+
+    // Process in batches to avoid memory issues
+    while (true) {
+      let query = this.firestore
+        .collection('songs')
+        .orderBy('createdAt')
+        .limit(batchSize);
+
+      if (lastDoc) {
+        query = query.startAfter(lastDoc);
+      }
+
+      const snapshot = await query.get();
+      if (snapshot.empty) break;
+
+      lastDoc = snapshot.docs[snapshot.docs.length - 1];
+
+      // Filter to only songs missing videoTitle
+      const needsUpdate = snapshot.docs.filter(doc => {
+        const data = doc.data();
+        return !data.videoTitle && data.youtubeId;
+      });
+
+      if (needsUpdate.length === 0) {
+        skipped += snapshot.docs.length;
+        if (snapshot.docs.length < batchSize) break;
+        continue;
+      }
+
+      // Batch-fetch YouTube titles for all songs in this batch
+      const videoIds = needsUpdate.map(doc => doc.data().youtubeId).join(',');
+      try {
+        const response = await this.youtube.getVideoTitles(videoIds);
+
+        await Promise.all(
+          needsUpdate.map(async doc => {
+            const data = doc.data();
+            const videoTitle = response[data.youtubeId];
+            if (videoTitle) {
+              await this.firestore.doc(`songs/${doc.id}`).update({ videoTitle });
+              processed++;
+            } else {
+              // No YouTube data — use existing title as fallback
+              await this.firestore.doc(`songs/${doc.id}`).update({ videoTitle: data.title });
+              processed++;
+            }
+          })
+        );
+      } catch (error) {
+        this.logger.error(`Batch failed: ${(error as Error).message}`);
+        failed += needsUpdate.length;
+      }
+
+      skipped += snapshot.docs.length - needsUpdate.length;
+
+      if (snapshot.docs.length < batchSize) break;
+    }
+
+    this.logger.log(`videoTitle backfill complete — processed: ${processed}, skipped: ${skipped}, failed: ${failed}`);
+    return { processed, skipped, failed };
+  }
+
   private mapToSongResponse(id: string, data: any, rank: number = 0): SearchSongDto {
     return {
       id,

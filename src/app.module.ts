@@ -9,12 +9,15 @@ import { PlaylistsModule } from './playlists/playlists.module';
 import { SearchModule } from './search/search.module';
 import { SuggestionsModule } from './suggestions/suggestions.module';
 import { SyncModule } from './sync/sync.module';
+import { AuthModule } from './auth/auth.module';
+import { AdminController } from './auth/admin.controller';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     CacheModule,
+    AuthModule,
     SongsModule,
     ArtistsModule,
     AlbumsModule,
@@ -23,7 +26,7 @@ import { SyncModule } from './sync/sync.module';
     SuggestionsModule,
     SyncModule,
   ],
-  controllers: [],
+  controllers: [AdminController],
   providers: [],
 })
 export class AppModule {}

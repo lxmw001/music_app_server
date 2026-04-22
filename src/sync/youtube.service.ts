@@ -197,4 +197,22 @@ export class YouTubeService {
     }
     throw lastError;
   }
+
+  async getVideoTitles(videoIds: string): Promise<Record<string, string>> {
+    if (!videoIds || this.apiKeys.length === 0) return {};
+    try {
+      const apiKey = this.getCurrentApiKey();
+      const response = await axios.get(YOUTUBE_VIDEOS_URL, {
+        params: { key: apiKey, id: videoIds, part: 'snippet' },
+      });
+      const result: Record<string, string> = {};
+      for (const item of response.data.items ?? []) {
+        result[item.id] = item.snippet.title;
+      }
+      return result;
+    } catch (error) {
+      this.logger.warn(`getVideoTitles failed: ${(error as Error).message}`);
+      return {};
+    }
+  }
 }
