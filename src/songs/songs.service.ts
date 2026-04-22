@@ -410,6 +410,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
 
                 const songData = {
                   title: song.title,
+                  videoTitle: original?.title || song.title,
                   artistName: song.artistName,
                   youtubeId: song.videoId,
                   nameLower: song.title.toLowerCase(),
@@ -785,6 +786,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
 
             const songData = {
               title: song.title,
+              videoTitle: original?.title || song.title,
               artistName: song.artistName,
               youtubeId: song.videoId,
               nameLower: song.title.toLowerCase(),
@@ -940,6 +942,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
 
         const songData = {
           title: song.title,
+          videoTitle: original?.title || song.title,
           artistName: song.artistName,
           youtubeId: song.videoId,
           nameLower: song.title.toLowerCase(),
