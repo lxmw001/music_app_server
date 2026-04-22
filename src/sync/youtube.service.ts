@@ -200,41 +200,58 @@ export class YouTubeService {
   private async getRelatedWithCurrentKey(videoId: string, maxResults: number): Promise<YouTubeSearchResult[]> {
     const apiKey = this.getCurrentApiKey();
 
-    const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, {
-      params: {
-        key: apiKey,
-        relatedToVideoId: videoId,
-        part: 'snippet',
-        type: 'video',
-        maxResults,
-      },
-    });
-
-    const items: any[] = searchResponse.data.items ?? [];
-    if (items.length === 0) return [];
-
-    const videoIds = items.map((item: any) => item.id.videoId).join(',');
-
-    let durationsMap: Record<string, number> = {};
+    // Try relatedToVideoId first (deprecated but may still work)
     try {
-      const videosResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
+      const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, {
         params: {
           key: apiKey,
-          id: videoIds,
-          part: 'contentDetails',
+          relatedToVideoId: videoId,
+          part: 'snippet',
+          type: 'video',
+          maxResults,
         },
       });
-      for (const v of videosResponse.data.items ?? []) {
-        durationsMap[v.id] = this.parseDuration(v.contentDetails?.duration ?? '');
+
+      const items: any[] = searchResponse.data.items ?? [];
+      if (items.length > 0) {
+        const videoIds = items.map((item: any) => item.id.videoId).join(',');
+        let durationsMap: Record<string, number> = {};
+        try {
+          const videosResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
+            params: { key: apiKey, id: videoIds, part: 'contentDetails' },
+          });
+          for (const v of videosResponse.data.items ?? []) {
+            durationsMap[v.id] = this.parseDuration(v.contentDetails?.duration ?? '');
+          }
+        } catch {}
+
+        return items.map((item: any) => ({
+          videoId: item.id.videoId as string,
+          title: item.snippet.title as string,
+          channelTitle: item.snippet.channelTitle as string,
+          thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+          durationSeconds: durationsMap[item.id.videoId],
+        }));
+      }
+    } catch {
+      // relatedToVideoId may be deprecated — fall through to search fallback
+    }
+
+    // Fallback: search for the video by ID to get its title, then search for similar
+    this.logger.warn(`relatedToVideoId returned no results for ${videoId} — using search fallback`);
+    try {
+      const videoResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
+        params: { key: apiKey, id: videoId, part: 'snippet' },
+      });
+      const videoData = videoResponse.data.items?.[0];
+      if (videoData) {
+        const title = videoData.snippet.title;
+        const channel = videoData.snippet.channelTitle;
+        // Search for similar songs by the same artist
+        return this.searchWithCurrentKey(`${channel} songs`, maxResults);
       }
     } catch {}
 
-    return items.map((item: any) => ({
-      videoId: item.id.videoId as string,
-      title: item.snippet.title as string,
-      channelTitle: item.snippet.channelTitle as string,
-      thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-      durationSeconds: durationsMap[item.id.videoId],
-    }));
+    return [];
   }
 }
