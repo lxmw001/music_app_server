@@ -200,57 +200,20 @@ export class YouTubeService {
   private async getRelatedWithCurrentKey(videoId: string, maxResults: number): Promise<YouTubeSearchResult[]> {
     const apiKey = this.getCurrentApiKey();
 
-    // Try relatedToVideoId first (deprecated but may still work)
-    try {
-      const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, {
-        params: {
-          key: apiKey,
-          relatedToVideoId: videoId,
-          part: 'snippet',
-          type: 'video',
-          maxResults,
-        },
-      });
-
-      const items: any[] = searchResponse.data.items ?? [];
-      if (items.length > 0) {
-        const videoIds = items.map((item: any) => item.id.videoId).join(',');
-        let durationsMap: Record<string, number> = {};
-        try {
-          const videosResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
-            params: { key: apiKey, id: videoIds, part: 'contentDetails' },
-          });
-          for (const v of videosResponse.data.items ?? []) {
-            durationsMap[v.id] = this.parseDuration(v.contentDetails?.duration ?? '');
-          }
-        } catch {}
-
-        return items.map((item: any) => ({
-          videoId: item.id.videoId as string,
-          title: item.snippet.title as string,
-          channelTitle: item.snippet.channelTitle as string,
-          thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-          durationSeconds: durationsMap[item.id.videoId],
-        }));
-      }
-    } catch {
-      // relatedToVideoId may be deprecated — fall through to search fallback
-    }
-
-    // Fallback: search for the video by ID to get its title, then search for similar
-    this.logger.warn(`relatedToVideoId returned no results for ${videoId} — using search fallback`);
+    // Fetch the video's channel name, then search for the artist's best songs
     try {
       const videoResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
         params: { key: apiKey, id: videoId, part: 'snippet' },
       });
       const videoData = videoResponse.data.items?.[0];
       if (videoData) {
-        const title = videoData.snippet.title;
         const channel = videoData.snippet.channelTitle;
-        // Search for similar songs by the same artist
-        return this.searchWithCurrentKey(`${channel} songs`, maxResults);
+        this.logger.log(`Getting best songs for artist: ${channel}`);
+        return this.searchWithCurrentKey(`${channel} best songs`, maxResults);
       }
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`getRelatedVideos failed for ${videoId}: ${(error as Error).message}`);
+    }
 
     return [];
   }
