@@ -177,4 +177,64 @@ export class YouTubeService {
       durationSeconds: this.parseDuration(item.contentDetails?.duration ?? ''),
     }));
   }
+
+  async getRelatedVideos(videoId: string, maxResults: number = 30): Promise<YouTubeSearchResult[]> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt < this.apiKeys.length; attempt++) {
+      try {
+        return await this.getRelatedWithCurrentKey(videoId, maxResults);
+      } catch (error) {
+        lastError = error;
+        if (this.isQuotaError(error)) {
+          this.logger.warn(`API key ${this.currentKeyIndex + 1} quota exceeded`);
+          if (!this.rotateApiKey()) throw error;
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  }
+
+  private async getRelatedWithCurrentKey(videoId: string, maxResults: number): Promise<YouTubeSearchResult[]> {
+    const apiKey = this.getCurrentApiKey();
+
+    const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, {
+      params: {
+        key: apiKey,
+        relatedToVideoId: videoId,
+        part: 'snippet',
+        type: 'video',
+        maxResults,
+      },
+    });
+
+    const items: any[] = searchResponse.data.items ?? [];
+    if (items.length === 0) return [];
+
+    const videoIds = items.map((item: any) => item.id.videoId).join(',');
+
+    let durationsMap: Record<string, number> = {};
+    try {
+      const videosResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
+        params: {
+          key: apiKey,
+          id: videoIds,
+          part: 'contentDetails',
+        },
+      });
+      for (const v of videosResponse.data.items ?? []) {
+        durationsMap[v.id] = this.parseDuration(v.contentDetails?.duration ?? '');
+      }
+    } catch {}
+
+    return items.map((item: any) => ({
+      videoId: item.id.videoId as string,
+      title: item.snippet.title as string,
+      channelTitle: item.snippet.channelTitle as string,
+      thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+      durationSeconds: durationsMap[item.id.videoId],
+    }));
+  }
 }

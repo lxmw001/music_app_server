@@ -891,60 +891,78 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     const playlist: SearchSongDto[] = [];
     const seenIds = new Set<string>([songId]);
 
-    const similarTracks = await this.lastfm.getSimilarTracks(
-      seedSong.title,
-      seedSong.artistName,
-      limit * 2
-    );
+    // Get related videos from YouTube
+    const relatedVideos = await this.youtube.getRelatedVideos(seedSong.youtubeId, limit * 2);
+    
+    // Clean and classify with Gemini
+    const prompt = `Classify YouTube results into: songs, mixes, videos, artists.
+Rules:
+- Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist. Assign 1-3 music genres.
+- Mixes: Playlists, compilations, DJ sets
+- Videos: Interviews, behind-scenes, live performances
+- Remove duplicates
 
-    for (const track of similarTracks) {
+Return JSON:
+{
+  "songs": [{"title":"Song","artistName":"Artist","videoId":"abc","genres":["genre1"]}],
+  "mixes": [{"title":"Mix","videoId":"xyz"}],
+  "videos": [{"title":"Video","videoId":"def"}],
+  "artists": [{"name":"Artist"}]
+}
+
+Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
+
+    const text = await this.gemini.generate(prompt);
+    const classified = JSON.parse(this.extractJson(text));
+
+    // Process songs
+    for (const song of classified.songs || []) {
       if (playlist.length >= limit) break;
 
-      const snapshot = await this.firestore.collection('songs')
-        .where('nameLower', '==', track.title.toLowerCase())
-        .limit(5)
+      const original = relatedVideos.find(r => r.videoId === song.videoId);
+      
+      // Check if song exists
+      const existingSnapshot = await this.firestore.collection('songs')
+        .where('youtubeId', '==', song.videoId)
+        .limit(1)
         .get();
 
-      for (const doc of snapshot.docs) {
-        const songData = doc.data();
-        const artistMatch = this.normalizeArtistName(songData.artistName) ===
-                           this.normalizeArtistName(track.artist);
+      if (!existingSnapshot.empty && !seenIds.has(existingSnapshot.docs[0].id)) {
+        const doc = existingSnapshot.docs[0];
+        seenIds.add(doc.id);
+        playlist.push(this.mapToSongResponse(doc.id, doc.data(), playlist.length + 1));
+      } else if (existingSnapshot.empty) {
+        // Create new song
+        const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
+        const geminiGenres = song.genres || [];
+        const lastfmGenres = metadata?.tags || [];
+        const allGenres = [...new Set([...geminiGenres, ...lastfmGenres])].slice(0, 5);
 
-        if (artistMatch && !seenIds.has(doc.id)) {
-          playlist.push(this.mapToSongResponse(doc.id, songData, playlist.length + 1));
-          seenIds.add(doc.id);
-          break;
-        }
+        const songData = {
+          title: song.title,
+          artistName: song.artistName,
+          youtubeId: song.videoId,
+          nameLower: song.title.toLowerCase(),
+          coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
+          durationSeconds: original?.durationSeconds || 0,
+          album: metadata?.album || null,
+          releaseDate: metadata?.releaseDate || null,
+          genres: allGenres,
+          listeners: metadata?.listeners || 0,
+          mbid: metadata?.mbid || null,
+          tags: metadata?.rawTags || [],
+          searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const docRef = await this.firestore.collection('songs').add(songData);
+        seenIds.add(docRef.id);
+        playlist.push(this.mapToSongResponse(docRef.id, songData, playlist.length + 1));
       }
     }
 
-    this.logger.log(`Matched ${playlist.length} songs from Last.fm recommendations`);
-
-    if (playlist.length < limit) {
-      const needed = limit - playlist.length;
-      const tags = seedSong.tags || [];
-      const genre = seedSong.genre;
-
-      let query = this.firestore.collection('songs').limit(needed * 2);
-
-      if (tags.length > 0) {
-        query = query.where('tags', 'array-contains-any', tags.slice(0, 10));
-      } else if (genre) {
-        query = query.where('genre', '==', genre);
-      }
-
-      const snapshot = await query.get();
-
-      for (const doc of snapshot.docs) {
-        if (playlist.length >= limit) break;
-        if (!seenIds.has(doc.id)) {
-          playlist.push(this.mapToSongResponse(doc.id, doc.data(), playlist.length + 1));
-          seenIds.add(doc.id);
-        }
-      }
-
-      this.logger.log(`Added ${playlist.length - similarTracks.length} songs from DB fallback`);
-    }
+    this.logger.log(`Generated playlist with ${playlist.length} songs from YouTube related videos`);
 
     await this.firestore.doc(`playlists_generated/${songId}`).set({
       songs: playlist.map(s => s.id),
