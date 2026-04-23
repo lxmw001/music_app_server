@@ -408,7 +408,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
                 const metadata = metadataResults[i];
                 const allGenres = [...new Set([...(classifiedSong?.genres || []), ...(metadata?.tags || [])])].slice(0, 5);
 
-                const songData = {
+                const songData: any = {
                   title: song.title,
                   videoTitle: original?.title || song.title,
                   artistName: song.artistName,
@@ -416,16 +416,18 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
                   nameLower: song.title.toLowerCase(),
                   coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
                   durationSeconds: original?.durationSeconds || 0,
-                  album: metadata?.album || null,
-                  releaseDate: metadata?.releaseDate || null,
                   genres: allGenres,
                   listeners: metadata?.listeners || 0,
-                  mbid: metadata?.mbid || null,
                   tags: metadata?.rawTags || [],
                   searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
                   createdAt: new Date(),
                   updatedAt: new Date(),
                 };
+
+                // Only add optional fields if they exist
+                if (metadata?.album) songData.album = metadata.album;
+                if (metadata?.releaseDate) songData.releaseDate = metadata.releaseDate;
+                if (metadata?.mbid) songData.mbid = metadata.mbid;
 
                 const docRef = await this.firestore.collection('songs').add(songData);
                 if (!seenDbIds.has(docRef.id)) {
@@ -784,7 +786,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
             const metadata = metadataResults[i];
             const allGenres = [...new Set([...(metadata?.tags || [])])].slice(0, 5);
 
-            const songData = {
+            const songData: any = {
               title: song.title,
               videoTitle: original?.title || song.title,
               artistName: song.artistName,
@@ -792,16 +794,18 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
               nameLower: song.title.toLowerCase(),
               coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
               durationSeconds: original?.durationSeconds || 0,
-              album: metadata?.album || null,
-              releaseDate: metadata?.releaseDate || null,
               genres: allGenres,
               listeners: metadata?.listeners || 0,
-              mbid: metadata?.mbid || null,
               tags: metadata?.rawTags || [],
               searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
               createdAt: new Date(),
               updatedAt: new Date(),
             };
+
+            // Only add optional fields if they exist
+            if (metadata?.album) songData.album = metadata.album;
+            if (metadata?.releaseDate) songData.releaseDate = metadata.releaseDate;
+            if (metadata?.mbid) songData.mbid = metadata.mbid;
 
             const docRef = await this.firestore.collection('songs').add(songData);
             if (!seenDbIds.has(docRef.id)) {
@@ -940,7 +944,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
         const lastfmGenres = metadata?.tags || [];
         const allGenres = [...new Set([...geminiGenres, ...lastfmGenres])].slice(0, 5);
 
-        const songData = {
+        const songData: any = {
           title: song.title,
           videoTitle: original?.title || song.title,
           artistName: song.artistName,
@@ -948,16 +952,18 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
           nameLower: song.title.toLowerCase(),
           coverImageUrl: metadata?.albumArt || original?.thumbnailUrl || '',
           durationSeconds: original?.durationSeconds || 0,
-          album: metadata?.album || null,
-          releaseDate: metadata?.releaseDate || null,
           genres: allGenres,
           listeners: metadata?.listeners || 0,
-          mbid: metadata?.mbid || null,
           tags: metadata?.rawTags || [],
           searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
           createdAt: new Date(),
           updatedAt: new Date(),
         };
+
+        // Only add optional fields if they exist
+        if (metadata?.album) songData.album = metadata.album;
+        if (metadata?.releaseDate) songData.releaseDate = metadata.releaseDate;
+        if (metadata?.mbid) songData.mbid = metadata.mbid;
 
         const docRef = await this.firestore.collection('songs').add(songData);
         seenIds.add(docRef.id);
