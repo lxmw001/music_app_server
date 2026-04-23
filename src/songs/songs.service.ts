@@ -586,7 +586,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
 
   async getTrendingMusic(country: string = 'EC', limit: number = 50, force: boolean = false): Promise<SearchYouTubeResponseDto> {
     const maxLimit = 50;
-    const memCacheKey = `trending_${country}`;
+    const memCacheKey = `trending_v2_${country}`;
 
     // 1. In-memory cache (fastest — no network)
     if (!force) {
@@ -603,7 +603,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     }
 
     // 2. Firestore cache (survives restarts, shared across instances)
-    const firestoreCacheRef = this.firestore.doc(`trending_cache/${country}`);
+    const firestoreCacheRef = this.firestore.doc(`trending_cache_v2/${country}`);
     if (!force) {
       const firestoreCached = await firestoreCacheRef.get();
       if (firestoreCached.exists) {
@@ -856,13 +856,13 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     };
 
     // Persist to Firestore cache (survives restarts)
-    await this.firestore.doc(`trending_cache/${country}`).set({
+    await this.firestore.doc(`trending_cache_v2/${country}`).set({
       result,
       lastUpdated: new Date(),
     });
 
     // Populate in-memory cache
-    await this.cache.set(`trending_${country}`, result, 3600000); // 1h
+    await this.cache.set(`trending_v2_${country}`, result, 3600000); // 1h
 
     return result;
   }
