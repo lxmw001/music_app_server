@@ -41,7 +41,7 @@ Implement a comprehensive test suite for the NestJS Music API covering unit test
 
   - [x] 2.5 Write unit tests for SearchService
     - Test `search('')` and `search('   ')` both throw `BadRequestException`
-    - Test cache hit (Firestore not called), cache miss (four collection queries executed, results merged and cached)
+    - Test cache hit (Firestore not called), cache miss (four collec /tion queries executed, results merged and cached)
     - Test result shape (exactly keys `songs`, `artists`, `albums`, `playlists`, each an array)
     - Test playlist filtering (docs with `ownerUid === null` excluded)
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_

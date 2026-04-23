@@ -21,6 +21,7 @@ export class SearchMixDto {
   youtubeId: string;
   thumbnailUrl: string;
   rank: number;
+  genres: string[];
 }
 
 export class SearchVideoDto {

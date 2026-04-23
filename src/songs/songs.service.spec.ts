@@ -118,3 +118,209 @@ describe('SongsService', () => {
     });
   });
 });
+
+// ─── generatePlaylist — bug condition (Property 1) ───────────────────────────
+// Validates: Requirements 1.1, 1.2, 1.3
+// These tests MUST FAIL on unfixed code — failure confirms the bug exists.
+
+describe("generatePlaylist — bug condition (Property 1)", () => {
+  let service: SongsService;
+  let mockFirestore: ReturnType<typeof createMockFirestore>;
+  let mockGemini: { generate: jest.Mock; parseSearchIntent: jest.Mock };
+  let mockYoutube: { getRelatedVideos: jest.Mock };
+
+  beforeEach(async () => {
+    mockFirestore = createMockFirestore();
+    mockGemini = {
+      generate: jest
+        .fn()
+        .mockResolvedValue('{"songs":[],"mixes":[],"videos":[],"artists":[]}'),
+      parseSearchIntent: jest.fn().mockResolvedValue(null),
+    };
+    mockYoutube = { getRelatedVideos: jest.fn().mockResolvedValue([]) };
+
+    // First call: playlist cache doc (does not exist)
+    // Second call: seed song doc (exists)
+    mockFirestore._docRef.get
+      .mockResolvedValueOnce({ exists: false })
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({ title: "Test Song", artistName: "Test Artist" }),
+      });
+
+    const module = await Test.createTestingModule({
+      providers: [
+        SongsService,
+        { provide: FirestoreService, useValue: mockFirestore },
+        { provide: GeminiService, useValue: mockGemini },
+        { provide: YouTubeService, useValue: mockYoutube },
+        {
+          provide: LastFmService,
+          useValue: {
+            searchTrack: jest.fn(),
+            getSimilarTracks: jest.fn(),
+          },
+        },
+        {
+          provide: SongDeduplicationService,
+          useValue: {
+            getCanonicalSongId: jest.fn().mockResolvedValue(null),
+            deduplicateByCode: jest
+              .fn()
+              .mockReturnValue({ unique: [], duplicateMap: new Map() }),
+            recordDuplicate: jest.fn().mockResolvedValue(undefined),
+            recordDistinct: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        { provide: CACHE_MANAGER, useValue: createMockCache() },
+      ],
+    }).compile();
+
+    service = module.get(SongsService);
+  });
+
+  it("cache key includes normalized search string", async () => {
+    await (service as any).generatePlaylist("song1", 30, "sad reggaeton songs");
+
+    expect(mockFirestore.doc).toHaveBeenCalledWith(
+      "playlists_generated/song1_sad_reggaeton_songs"
+    );
+  });
+
+  it("Gemini prompt contains search string", async () => {
+    // Reset and re-configure mocks for this test
+    mockFirestore._docRef.get
+      .mockReset()
+      .mockResolvedValueOnce({ exists: false })
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({ title: "Test Song", artistName: "Test Artist" }),
+      });
+
+    await (service as any).generatePlaylist("song1", 30, "party hits");
+
+    expect(mockGemini.generate).toHaveBeenCalledWith(
+      expect.stringContaining("party hits")
+    );
+  });
+});
+
+// ─── generatePlaylist — preservation (Property 2) ────────────────────────────
+// Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5
+// These tests MUST PASS on unfixed code — they confirm baseline behavior.
+
+describe("generatePlaylist — preservation (Property 2)", () => {
+  let service: SongsService;
+  let mockFirestore: ReturnType<typeof createMockFirestore>;
+  let mockGemini: { generate: jest.Mock; parseSearchIntent: jest.Mock };
+  let mockYoutube: { getRelatedVideos: jest.Mock };
+
+  beforeEach(async () => {
+    mockFirestore = createMockFirestore();
+    mockGemini = {
+      generate: jest
+        .fn()
+        .mockResolvedValue('{"songs":[],"mixes":[],"videos":[],"artists":[]}'),
+      parseSearchIntent: jest.fn().mockResolvedValue(null),
+    };
+    mockYoutube = { getRelatedVideos: jest.fn().mockResolvedValue([]) };
+
+    // Default: playlist cache miss, then valid seed song
+    mockFirestore._docRef.get
+      .mockResolvedValueOnce({ exists: false })
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({ title: "Test Song", artistName: "Test Artist" }),
+      });
+
+    const module = await Test.createTestingModule({
+      providers: [
+        SongsService,
+        { provide: FirestoreService, useValue: mockFirestore },
+        { provide: GeminiService, useValue: mockGemini },
+        { provide: YouTubeService, useValue: mockYoutube },
+        {
+          provide: LastFmService,
+          useValue: {
+            searchTrack: jest.fn(),
+            getSimilarTracks: jest.fn(),
+          },
+        },
+        {
+          provide: SongDeduplicationService,
+          useValue: {
+            getCanonicalSongId: jest.fn().mockResolvedValue(null),
+            deduplicateByCode: jest
+              .fn()
+              .mockReturnValue({ unique: [], duplicateMap: new Map() }),
+            recordDuplicate: jest.fn().mockResolvedValue(undefined),
+            recordDistinct: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        { provide: CACHE_MANAGER, useValue: createMockCache() },
+      ],
+    }).compile();
+
+    service = module.get(SongsService);
+  });
+
+  it("no search: cache key is playlists_generated/{songId}", async () => {
+    await (service as any).generatePlaylist("song1", 30);
+
+    expect(mockFirestore.doc).toHaveBeenCalledWith("playlists_generated/song1");
+  });
+
+  it("empty search: cache key is playlists_generated/{songId}", async () => {
+    mockFirestore._docRef.get
+      .mockReset()
+      .mockResolvedValueOnce({ exists: false })
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({ title: "Test Song", artistName: "Test Artist" }),
+      });
+
+    await (service as any).generatePlaylist("song1", 30, "");
+
+    expect(mockFirestore.doc).toHaveBeenCalledWith("playlists_generated/song1");
+  });
+
+  it("whitespace-only search: cache key is playlists_generated/{songId}", async () => {
+    mockFirestore._docRef.get
+      .mockReset()
+      .mockResolvedValueOnce({ exists: false })
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({ title: "Test Song", artistName: "Test Artist" }),
+      });
+
+    await (service as any).generatePlaylist("song1", 30, "   ");
+
+    expect(mockFirestore.doc).toHaveBeenCalledWith("playlists_generated/song1");
+  });
+
+  it("no search: Gemini prompt has no search context prefix", async () => {
+    mockFirestore._docRef.get
+      .mockReset()
+      .mockResolvedValueOnce({ exists: false })
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({ title: "Test Song", artistName: "Test Artist" }),
+      });
+
+    await (service as any).generatePlaylist("song1", 30);
+
+    expect(mockGemini.generate).not.toHaveBeenCalledWith(
+      expect.stringContaining("The user searched for")
+    );
+  });
+
+  it("missing songId throws NotFoundException even with search", async () => {
+    mockFirestore._docRef.get
+      .mockReset()
+      .mockResolvedValue({ exists: false });
+
+    await expect(
+      (service as any).generatePlaylist("missing", 30, "some query")
+    ).rejects.toThrow(NotFoundException);
+  });
+});

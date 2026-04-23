@@ -725,14 +725,14 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     if (unknownForGemini.length > 0) {
       const prompt = `Classify YouTube trending music videos into: songs, mixes, videos, artists.
 Rules:
-- Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist.
+- Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist. Assign 1-3 music genres.
 - Mixes: Playlists, compilations, DJ sets
 - Videos: Interviews, behind-scenes, live performances
 - Artists: Artist channels
 
 Return JSON only:
 {
-  "songs": [{"title":"Song","artistName":"Artist","videoId":"abc"}],
+  "songs": [{"title":"Song","artistName":"Artist","videoId":"abc","genres":["genre1"]}],
   "mixes": [{"title":"Mix","videoId":"xyz"}],
   "videos": [{"title":"Video","videoId":"def"}],
   "artists": [{"name":"Artist"}]
@@ -784,7 +784,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
           newSongs.map(async (song, i) => {
             const original = trendingVideos.find(r => r.videoId === song.videoId);
             const metadata = metadataResults[i];
-            const allGenres = [...new Set([...(metadata?.tags || [])])].slice(0, 5);
+            const allGenres = [...new Set([...(song.genres || []), ...(metadata?.tags || [])])].slice(0, 5);
 
             const songData: any = {
               title: song.title,
@@ -862,8 +862,15 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     return result;
   }
 
-  async generatePlaylist(songId: string, limit: number = 30): Promise<SearchSongDto[]> {
-    const playlistDoc = await this.firestore.doc(`playlists_generated/${songId}`).get();
+  async generatePlaylist(songId: string, limit: number = 30, search?: string): Promise<SearchSongDto[]> {
+    const normalizedSearch = search?.trim()
+      ? search.toLowerCase().trim().replace(/\s+/g, '_')
+      : null;
+    const cacheKey = normalizedSearch
+      ? `playlists_generated/${songId}_${normalizedSearch}`
+      : `playlists_generated/${songId}`;
+
+    const playlistDoc = await this.firestore.doc(cacheKey).get();
 
     if (playlistDoc.exists) {
       const data = playlistDoc.data();
@@ -901,7 +908,10 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     const relatedVideos = await this.youtube.getRelatedVideos(seedSong.artistName, limit * 2);
     
     // Clean and classify with Gemini
-    const prompt = `Classify YouTube results into: songs, mixes, videos, artists.
+    const searchContext = normalizedSearch
+      ? `The user searched for: "${search!.trim()}". Prioritize songs that match this mood, vibe, and intent.\n\n`
+      : '';
+    const prompt = `${searchContext}Classify YouTube results into: songs, mixes, videos, artists.
 Rules:
 - Songs: Single tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist. Assign 1-3 music genres.
 - Mixes: Playlists, compilations, DJ sets
@@ -973,7 +983,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
 
     this.logger.log(`Generated playlist with ${playlist.length} songs from YouTube related videos`);
 
-    await this.firestore.doc(`playlists_generated/${songId}`).set({
+    await this.firestore.doc(cacheKey).set({
       songs: playlist.map(s => s.id),
       generatedAt: playlistDoc.exists ? playlistDoc.data().generatedAt : new Date(),
       lastUpdated: new Date(),
@@ -1152,7 +1162,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
 
     return {
       songs,
-      mixes: data.mixes || [],
+      mixes: (data.mixes || []).map((m) => ({ ...m, genres: m.genres || [] })),
       videos: data.videos || [],
       artists,
     };

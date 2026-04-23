@@ -1,11 +1,11 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 
 const apiKey = process.env.GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(apiKey);
+const genAI = new GoogleGenAI({ apiKey });
 
 async function listModels() {
   try {
-    const models = await genAI.listModels();
+    const models = await genAI.models.list();
     console.log('Available Gemini models:');
     for await (const model of models) {
       console.log(`- ${model.name}`);
