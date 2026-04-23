@@ -155,26 +155,46 @@ export class YouTubeService {
   private async getTrendingWithCurrentKey(regionCode: string, maxResults: number): Promise<YouTubeSearchResult[]> {
     const apiKey = this.getCurrentApiKey();
 
-    // Get trending videos (music category = 10)
-    const response = await axios.get(YOUTUBE_VIDEOS_URL, {
+    // Search for most viewed music videos published in the last 7 days
+    const publishedAfter = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, {
       params: {
         key: apiKey,
-        part: 'snippet,contentDetails',
-        chart: 'mostPopular',
+        part: 'snippet',
+        type: 'video',
+        videoCategoryId: '10', // Music
+        order: 'viewCount',
+        publishedAfter,
         regionCode,
-        videoCategoryId: '10', // Music category
+        relevanceLanguage: regionCode === 'EC' || regionCode === 'MX' || regionCode === 'CO' ? 'es' : 'en',
         maxResults,
       },
     });
 
-    const items: any[] = response.data.items ?? [];
+    const items: any[] = searchResponse.data.items ?? [];
+    if (items.length === 0) return [];
+
+    const videoIds = items.map((item: any) => item.id.videoId).join(',');
+
+    let durationsMap: Record<string, number> = {};
+    try {
+      const videosResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
+        params: { key: apiKey, id: videoIds, part: 'contentDetails' },
+      });
+      for (const v of videosResponse.data.items ?? []) {
+        durationsMap[v.id] = this.parseDuration(v.contentDetails?.duration ?? '');
+      }
+    } catch {
+      // Duration fetch is best-effort
+    }
 
     return items.map((item: any) => ({
-      videoId: item.id as string,
+      videoId: item.id.videoId as string,
       title: item.snippet.title as string,
       channelTitle: item.snippet.channelTitle as string,
       thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-      durationSeconds: this.parseDuration(item.contentDetails?.duration ?? ''),
+      durationSeconds: durationsMap[item.id.videoId] ?? 0,
     }));
   }
 

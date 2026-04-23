@@ -584,58 +584,63 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     return bigrams;
   }
 
-  async getTrendingMusic(country: string = 'EC', limit: number = 50): Promise<SearchYouTubeResponseDto> {
+  async getTrendingMusic(country: string = 'EC', limit: number = 50, force: boolean = false): Promise<SearchYouTubeResponseDto> {
     const maxLimit = 50;
     const memCacheKey = `trending_${country}`;
 
     // 1. In-memory cache (fastest — no network)
-    const memCached = await this.cache.get<SearchYouTubeResponseDto>(memCacheKey);
-    if (memCached) {
-      this.logger.log(`Memory cache hit for trending ${country}`);
-      return {
-        songs: memCached.songs.slice(0, limit),
-        mixes: memCached.mixes.slice(0, limit),
-        videos: memCached.videos.slice(0, limit),
-        artists: memCached.artists.slice(0, limit),
-      };
+    if (!force) {
+      const memCached = await this.cache.get<SearchYouTubeResponseDto>(memCacheKey);
+      if (memCached) {
+        this.logger.log(`Memory cache hit for trending ${country}`);
+        return {
+          songs: memCached.songs.slice(0, limit),
+          mixes: memCached.mixes.slice(0, limit),
+          videos: memCached.videos.slice(0, limit),
+          artists: memCached.artists.slice(0, limit),
+        };
+      }
     }
 
     // 2. Firestore cache (survives restarts, shared across instances)
     const firestoreCacheRef = this.firestore.doc(`trending_cache/${country}`);
-    const firestoreCached = await firestoreCacheRef.get();
-    if (firestoreCached.exists) {
-      const data = firestoreCached.data();
-      const lastUpdated = data.lastUpdated?.toDate();
-      const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 6 * 60 * 60 * 1000; // 6h
+    if (!force) {
+      const firestoreCached = await firestoreCacheRef.get();
+      if (firestoreCached.exists) {
+        const data = firestoreCached.data();
+        const lastUpdated = data.lastUpdated?.toDate();
+        const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 60 * 60 * 1000; // 1h
 
-      if (!isStale) {
-        this.logger.log(`Firestore cache hit for trending ${country}`);
-        const result = data.result as SearchYouTubeResponseDto;
-        await this.cache.set(memCacheKey, result, 21600000);
+        if (!isStale) {
+          this.logger.log(`Firestore cache hit for trending ${country}`);
+          const result = data.result as SearchYouTubeResponseDto;
+          await this.cache.set(memCacheKey, result, 3600000); // 1h in-memory
+          return {
+            songs: result.songs.slice(0, limit),
+            mixes: result.mixes.slice(0, limit),
+            videos: result.videos.slice(0, limit),
+            artists: result.artists.slice(0, limit),
+          };
+        }
+
+        // Stale — return old data immediately, refresh in background
+        this.logger.log(`Stale Firestore cache for trending ${country} — returning stale, refreshing in background`);
+        const staleResult = data.result as SearchYouTubeResponseDto;
+        await this.cache.set(memCacheKey, staleResult, 3600000); // 1h in-memory
+        this.refreshTrendingCache(country, maxLimit).catch(err =>
+          this.logger.error(`Background trending refresh failed for ${country}: ${err.message}`)
+        );
         return {
-          songs: result.songs.slice(0, limit),
-          mixes: result.mixes.slice(0, limit),
-          videos: result.videos.slice(0, limit),
-          artists: result.artists.slice(0, limit),
+          songs: staleResult.songs.slice(0, limit),
+          mixes: staleResult.mixes.slice(0, limit),
+          videos: staleResult.videos.slice(0, limit),
+          artists: staleResult.artists.slice(0, limit),
         };
       }
-
-      // Stale — return old data immediately, refresh in background
-      this.logger.log(`Stale Firestore cache for trending ${country} — returning stale, refreshing in background`);
-      const staleResult = data.result as SearchYouTubeResponseDto;
-      await this.cache.set(memCacheKey, staleResult, 21600000);
-      this.refreshTrendingCache(country, maxLimit).catch(err =>
-        this.logger.error(`Background trending refresh failed for ${country}: ${err.message}`)
-      );
-      return {
-        songs: staleResult.songs.slice(0, limit),
-        mixes: staleResult.mixes.slice(0, limit),
-        videos: staleResult.videos.slice(0, limit),
-        artists: staleResult.artists.slice(0, limit),
-      };
     }
 
-    // 3. No cache — fetch fresh
+    // 3. No cache or force refresh — fetch fresh
+    this.logger.log(`Fetching fresh trending for ${country}${force ? ' (forced)' : ''}`);
     const result = await this.refreshTrendingCache(country, maxLimit);
     return {
       songs: result.songs.slice(0, limit),
@@ -857,7 +862,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     });
 
     // Populate in-memory cache
-    await this.cache.set(`trending_${country}`, result, 21600000);
+    await this.cache.set(`trending_${country}`, result, 3600000); // 1h
 
     return result;
   }
