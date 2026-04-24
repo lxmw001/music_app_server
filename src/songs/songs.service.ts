@@ -588,6 +588,12 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     const maxLimit = 50;
     const memCacheKey = `trending_v2_${country}`;
 
+    // Track this country for scheduled refresh
+    await this.firestore.doc(`trending_countries/${country}`).set({
+      lastRequested: new Date(),
+      requestCount: admin.firestore.FieldValue.increment(1),
+    }, { merge: true });
+
     // 1. In-memory cache (fastest — no network)
     if (!force) {
       const memCached = await this.cache.get<SearchYouTubeResponseDto>(memCacheKey);

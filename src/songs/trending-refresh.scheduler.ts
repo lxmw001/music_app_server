@@ -1,12 +1,16 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { SongsService } from './songs.service';
+import { FirestoreService } from '../firestore/firestore.service';
 
 @Injectable()
 export class TrendingRefreshScheduler implements OnModuleInit {
   private readonly logger = new Logger(TrendingRefreshScheduler.name);
 
-  constructor(private readonly songsService: SongsService) {}
+  constructor(
+    private readonly songsService: SongsService,
+    private readonly firestore: FirestoreService,
+  ) {}
 
   // Run on startup
   async onModuleInit() {
@@ -17,9 +21,17 @@ export class TrendingRefreshScheduler implements OnModuleInit {
   // Run every hour
   @Cron(CronExpression.EVERY_HOUR)
   async refreshTrendingCache() {
-    const countries = ['EC', 'MX', 'CO', 'US', 'AR', 'CL', 'PE', 'ES'];
+    // Get list of countries from Firestore
+    const countriesSnapshot = await this.firestore.collection('trending_countries').get();
     
-    this.logger.log(`Starting scheduled trending refresh for ${countries.length} countries`);
+    if (countriesSnapshot.empty) {
+      this.logger.warn('No trending countries found in Firestore - skipping refresh');
+      return;
+    }
+
+    const countries = countriesSnapshot.docs.map(doc => doc.id);
+    
+    this.logger.log(`Starting scheduled trending refresh for ${countries.length} countries: ${countries.join(', ')}`);
 
     for (const country of countries) {
       try {
