@@ -24,6 +24,11 @@ export class SongsController {
     return this.songsService.getTrendingMusic(country || 'EC', limit ? parseInt(limit as any) : 50, force === 'true');
   }
 
+  @Get('searches')
+  getAllSearches(): Promise<Array<{ query: string; searchCount: number; lastSearched: Date }>> {
+    return this.songsService.getAllSearches();
+  }
+
   @Get('search-youtube')
   searchYouTube(@Query('query') query: string): Promise<SearchYouTubeResponseDto> {
     return this.songsService.searchYouTube({ query });

@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Logger, OnModuleInit } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import * as admin from 'firebase-admin';
@@ -30,8 +30,9 @@ interface SongDocument {
 }
 
 @Injectable()
-export class SongsService {
+export class SongsService implements OnModuleInit {
   private readonly logger = new Logger(SongsService.name);
+  private searchesCache: Array<{ query: string; searchCount: number; lastSearched: Date }> = [];
 
   constructor(
     private readonly firestore: FirestoreService,
@@ -41,6 +42,37 @@ export class SongsService {
     private readonly dedup: SongDeduplicationService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
+
+  async onModuleInit() {
+    this.logger.log('Loading all searches into cache on startup');
+    await this.loadSearchesCache();
+  }
+
+  private async loadSearchesCache() {
+    try {
+      const snapshot = await this.firestore.collection('youtube_searches')
+        .orderBy('searchCount', 'desc')
+        .limit(1000)
+        .get();
+
+      this.searchesCache = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          query: data.originalQuery || doc.id,
+          searchCount: data.searchCount || 0,
+          lastSearched: data.lastSearched?.toDate() || new Date(),
+        };
+      });
+
+      this.logger.log(`Loaded ${this.searchesCache.length} searches into cache`);
+    } catch (error) {
+      this.logger.error(`Failed to load searches cache: ${error.message}`);
+    }
+  }
+
+  async getAllSearches(): Promise<Array<{ query: string; searchCount: number; lastSearched: Date }>> {
+    return this.searchesCache;
+  }
 
   async findById(id: string): Promise<SongResponseDto> {
     const key = CacheKeys.song(id);
