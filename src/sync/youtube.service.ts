@@ -155,26 +155,56 @@ export class YouTubeService {
   private async getTrendingWithCurrentKey(regionCode: string, maxResults: number): Promise<YouTubeSearchResult[]> {
     const apiKey = this.getCurrentApiKey();
 
-    // Search for trending music videos
-    const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, {
-      params: {
-        key: apiKey,
-        part: 'snippet',
-        type: 'video',
-        q: `Top 20 Music Videos ${regionCode}`,
-        videoCategoryId: '10', // Music category
-        order: 'relevance',
-        regionCode,
-        maxResults,
-      },
-    });
+    // For Latin American countries, search for popular Latin artists
+    const isLatinRegion = ['EC', 'MX', 'CO', 'AR', 'CL', 'PE', 'VE', 'UY', 'BO', 'PY', 'CR', 'PA', 'GT', 'HN', 'SV', 'NI', 'DO', 'CU', 'PR'].includes(regionCode);
+    
+    const queries = isLatinRegion 
+      ? ['Bad Bunny', 'Karol G', 'Feid', 'Peso Pluma', 'Shakira', 'Rauw Alejandro']
+      : ['trending music', 'top songs', 'new music'];
 
-    const items: any[] = searchResponse.data.items ?? [];
-    if (items.length === 0) return [];
+    // Search multiple queries and combine results
+    const allResults: YouTubeSearchResult[] = [];
+    const seenVideoIds = new Set<string>();
+    const resultsPerQuery = Math.ceil(maxResults / queries.length);
 
-    const videoIds = items.map((item: any) => item.id.videoId).join(',');
+    for (const query of queries) {
+      if (allResults.length >= maxResults) break;
 
-    let durationsMap: Record<string, number> = {};
+      const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, {
+        params: {
+          key: apiKey,
+          part: 'snippet',
+          type: 'video',
+          q: query,
+          videoCategoryId: '10', // Music category
+          order: 'viewCount',
+          regionCode,
+          maxResults: resultsPerQuery,
+        },
+      });
+
+      const items: any[] = searchResponse.data.items ?? [];
+      
+      for (const item of items) {
+        const videoId = item.id.videoId;
+        if (!seenVideoIds.has(videoId)) {
+          seenVideoIds.add(videoId);
+          allResults.push({
+            videoId,
+            title: item.snippet.title,
+            channelTitle: item.snippet.channelTitle,
+            thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+            durationSeconds: 0, // Will fetch below
+          });
+        }
+        if (allResults.length >= maxResults) break;
+      }
+    }
+
+    if (allResults.length === 0) return [];
+
+    // Fetch durations
+    const videoIds = allResults.map(r => r.videoId).join(',');
     try {
       const videosResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
         params: {
@@ -183,20 +213,18 @@ export class YouTubeService {
           part: 'contentDetails',
         },
       });
+      const durationsMap: Record<string, number> = {};
       for (const v of videosResponse.data.items ?? []) {
         durationsMap[v.id] = this.parseDuration(v.contentDetails?.duration ?? '');
       }
+      allResults.forEach(r => {
+        r.durationSeconds = durationsMap[r.videoId] ?? 0;
+      });
     } catch {
       // Duration fetch is best-effort
     }
 
-    return items.map((item: any) => ({
-      videoId: item.id.videoId as string,
-      title: item.snippet.title as string,
-      channelTitle: item.snippet.channelTitle as string,
-      thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-      durationSeconds: durationsMap[item.id.videoId] ?? 0,
-    }));
+    return allResults.slice(0, maxResults);
   }
 
   async getRelatedVideos(artistName: string, maxResults: number = 30): Promise<YouTubeSearchResult[]> {
