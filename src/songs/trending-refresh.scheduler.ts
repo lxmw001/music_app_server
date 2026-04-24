@@ -1,12 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { SongsService } from './songs.service';
 
 @Injectable()
-export class TrendingRefreshScheduler {
+export class TrendingRefreshScheduler implements OnModuleInit {
   private readonly logger = new Logger(TrendingRefreshScheduler.name);
 
   constructor(private readonly songsService: SongsService) {}
+
+  // Run on startup
+  async onModuleInit() {
+    this.logger.log('Running initial trending cache refresh on startup');
+    await this.refreshTrendingCache();
+  }
 
   // Run every hour
   @Cron(CronExpression.EVERY_HOUR)
