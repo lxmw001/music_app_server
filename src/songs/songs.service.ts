@@ -829,7 +829,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
           const doc = await this.firestore.doc(`songs/${s.songId}`).get();
           if (doc.exists) {
             const data = doc.data();
-            return {
+            const song: any = {
               id: doc.id,
               title: data.title,
               artistName: data.artistName,
@@ -839,12 +839,16 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
               rank: s.rank,
               genres: data.genres || [],
               tags: data.tags || [],
-              album: data.album,
-              listeners: data.listeners,
+              listeners: data.listeners || 0,
             };
+            // Only add optional fields if they exist
+            if (data.album) song.album = data.album;
+            if (data.releaseDate) song.releaseDate = data.releaseDate;
+            if (data.mbid) song.mbid = data.mbid;
+            return song;
           }
         }
-        return { ...s, genres: [], tags: [] };
+        return { ...s, genres: [], tags: [], listeners: 0 };
       })
     );
 
