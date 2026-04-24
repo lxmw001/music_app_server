@@ -74,6 +74,28 @@ export class SongsService implements OnModuleInit {
     return this.searchesCache;
   }
 
+  private updateSearchesCache(query: string, searchCount: number, lastSearched: Date) {
+    // Find existing entry
+    const existingIndex = this.searchesCache.findIndex(s => s.query.toLowerCase() === query.toLowerCase());
+    
+    if (existingIndex >= 0) {
+      // Update existing
+      this.searchesCache[existingIndex].searchCount = searchCount;
+      this.searchesCache[existingIndex].lastSearched = lastSearched;
+    } else {
+      // Add new
+      this.searchesCache.push({ query, searchCount, lastSearched });
+    }
+
+    // Re-sort by searchCount
+    this.searchesCache.sort((a, b) => b.searchCount - a.searchCount);
+
+    // Keep only top 1000
+    if (this.searchesCache.length > 1000) {
+      this.searchesCache = this.searchesCache.slice(0, 1000);
+    }
+  }
+
   async findById(id: string): Promise<SongResponseDto> {
     const key = CacheKeys.song(id);
     const cached = await this.cache.get<SongResponseDto>(key);
@@ -215,6 +237,9 @@ export class SongsService implements OnModuleInit {
         searchCount: (data.searchCount || 0) + 1,
         lastSearched: new Date(),
       }).catch(() => {});
+
+      // Update in-memory cache
+      this.updateSearchesCache(data.originalQuery || dto.query, (data.searchCount || 0) + 1, new Date());
 
       if (!isStale) {
         const result = await this.enrichSearchResults(data);
@@ -511,6 +536,9 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     };
 
     await this.firestore.doc(`youtube_searches/${normalizedQuery}`).set(searchData);
+
+    // Update in-memory cache in background
+    this.updateSearchesCache(dto.query, 1, new Date());
 
     const result = await this.enrichSearchResults(searchData);
 
