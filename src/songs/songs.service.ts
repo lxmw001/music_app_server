@@ -58,7 +58,7 @@ export class SongsService implements OnModuleInit {
       this.searchesCache = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
-          query: data.originalQuery || doc.id,
+          query: data.query || doc.id.replace(/-/g, ' '),
           searchCount: data.searchCount || 0,
           lastSearched: data.lastSearched?.toDate() || new Date(),
         };
@@ -239,7 +239,7 @@ export class SongsService implements OnModuleInit {
       }).catch(() => {});
 
       // Update in-memory cache
-      this.updateSearchesCache(data.originalQuery || dto.query, (data.searchCount || 0) + 1, new Date());
+      this.updateSearchesCache(data.query || dto.query, (data.searchCount || 0) + 1, new Date());
 
       if (!isStale) {
         const result = await this.enrichSearchResults(data);
