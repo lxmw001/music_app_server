@@ -551,7 +551,9 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
       .toLowerCase()
       .trim()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/^(el|la|los|las|the)\s+/i, '') // Remove leading articles
+      .replace(/\s+(el|la|los|las|the)\s+/gi, ' ') // Remove articles in middle
       .replace(/[^\w\s]/g, '')
       .replace(/\s+/g, '-');
   }
