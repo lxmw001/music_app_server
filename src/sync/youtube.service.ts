@@ -161,7 +161,7 @@ export class YouTubeService {
         key: apiKey,
         part: 'snippet',
         type: 'video',
-        q: `Top 100 Music Videos ${regionCode}`,
+        q: `Top 20 Music Videos ${regionCode}`,
         videoCategoryId: '10', // Music category
         order: 'relevance',
         regionCode,
