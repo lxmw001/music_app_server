@@ -25,7 +25,7 @@ export class SongsController {
   }
 
   @Get('searches')
-  getAllSearches(): Promise<string[]> {
+  getAllSearches(): Promise<Array<{ query: string; count: number }>> {
     return this.songsService.getAllSearches();
   }
 

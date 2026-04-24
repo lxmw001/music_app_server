@@ -70,8 +70,8 @@ export class SongsService implements OnModuleInit {
     }
   }
 
-  async getAllSearches(): Promise<string[]> {
-    return this.searchesCache.map(s => s.query);
+  async getAllSearches(): Promise<Array<{ query: string; count: number }>> {
+    return this.searchesCache.map(s => ({ query: s.query, count: s.searchCount }));
   }
 
   private updateSearchesCache(query: string, searchCount: number, lastSearched: Date) {
