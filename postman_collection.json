@@ -105,6 +105,19 @@
 					}
 				},
 				{
+					"name": "All Searches",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs/searches",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", "searches"]
+						},
+						"description": "Get all search queries ordered by popularity (cached in memory, updated in real-time)"
+					}
+				},
+				{
 					"name": "Generate Playlist from Song",
 					"request": {
 						"method": "GET",
