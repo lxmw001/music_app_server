@@ -155,26 +155,47 @@ export class YouTubeService {
   private async getTrendingWithCurrentKey(regionCode: string, maxResults: number): Promise<YouTubeSearchResult[]> {
     const apiKey = this.getCurrentApiKey();
 
-    // Use videos.list with chart=mostPopular (more reliable than search.list)
-    const response = await axios.get(YOUTUBE_VIDEOS_URL, {
+    // Search for trending music videos
+    const searchResponse = await axios.get(YOUTUBE_SEARCH_URL, {
       params: {
         key: apiKey,
-        part: 'snippet,contentDetails',
-        chart: 'mostPopular',
-        regionCode,
+        part: 'snippet',
+        type: 'video',
+        q: `Top 100 Music Videos ${regionCode}`,
         videoCategoryId: '10', // Music category
+        order: 'relevance',
+        regionCode,
         maxResults,
       },
     });
 
-    const items: any[] = response.data.items ?? [];
+    const items: any[] = searchResponse.data.items ?? [];
+    if (items.length === 0) return [];
+
+    const videoIds = items.map((item: any) => item.id.videoId).join(',');
+
+    let durationsMap: Record<string, number> = {};
+    try {
+      const videosResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
+        params: {
+          key: apiKey,
+          id: videoIds,
+          part: 'contentDetails',
+        },
+      });
+      for (const v of videosResponse.data.items ?? []) {
+        durationsMap[v.id] = this.parseDuration(v.contentDetails?.duration ?? '');
+      }
+    } catch {
+      // Duration fetch is best-effort
+    }
 
     return items.map((item: any) => ({
-      videoId: item.id as string,
+      videoId: item.id.videoId as string,
       title: item.snippet.title as string,
       channelTitle: item.snippet.channelTitle as string,
       thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-      durationSeconds: this.parseDuration(item.contentDetails?.duration ?? ''),
+      durationSeconds: durationsMap[item.id.videoId] ?? 0,
     }));
   }
 
