@@ -27,6 +27,7 @@ export class FirebaseAuthGuard implements CanActivate {
         uid: decoded.uid,
         email: decoded.email ?? '',
         admin: decoded['admin'] === true,
+        permissions: Array.isArray(decoded['permissions']) ? decoded['permissions'] : [],
       };
       return true;
     } catch {
