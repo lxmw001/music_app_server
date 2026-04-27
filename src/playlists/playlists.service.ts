@@ -26,6 +26,10 @@ interface PlaylistSongDocument {
 export class PlaylistsService {
   constructor(private readonly firestore: FirestoreService) {}
 
+  private toIso(ts: FirebaseFirestore.Timestamp | undefined): string {
+    return ts?.toDate?.()?.toISOString() ?? new Date().toISOString();
+  }
+
   async findById(playlistId: string, ownerUid: string): Promise<PlaylistResponseDto & { songs: string[] }> {
     const doc = await this.firestore.doc(`playlists/${playlistId}`).get();
     if (!doc.exists) throw new NotFoundException('Playlist not found');
@@ -48,7 +52,7 @@ export class PlaylistsService {
       description: data.description,
       ownerUid: data.ownerUid,
       type: data.type,
-      createdAt: data.createdAt,
+      createdAt: this.toIso(data.createdAt),
       songs: songIds,
     };
   }
@@ -91,7 +95,7 @@ export class PlaylistsService {
       description: data.description,
       ownerUid: data.ownerUid,
       type: data.type,
-      createdAt: data.createdAt,
+      createdAt: this.toIso(data.createdAt),
     };
   }
 
@@ -109,7 +113,7 @@ export class PlaylistsService {
         description: data.description,
         ownerUid: data.ownerUid,
         type: data.type,
-        createdAt: data.createdAt,
+        createdAt: this.toIso(data.createdAt),
       };
     });
   }

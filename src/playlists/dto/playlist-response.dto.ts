@@ -4,5 +4,5 @@ export class PlaylistResponseDto {
   description: string | null;
   ownerUid: string | null;
   type: 'user' | 'genre' | 'album';
-  createdAt: FirebaseFirestore.Timestamp;
+  createdAt: string;
 }
