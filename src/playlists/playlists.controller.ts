@@ -37,6 +37,22 @@ export class PlaylistsController {
     return this.playlistsService.findAllForUser(req.user.uid);
   }
 
+  @Get(':id')
+  findById(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.playlistsService.findById(id, req.user.uid);
+  }
+
+  @Get(':id/songs')
+  getSongs(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.playlistsService.getSongs(id, req.user.uid);
+  }
+
   @Delete(':id')
   @HttpCode(204)
   delete(

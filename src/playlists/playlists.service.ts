@@ -26,6 +26,50 @@ interface PlaylistSongDocument {
 export class PlaylistsService {
   constructor(private readonly firestore: FirestoreService) {}
 
+  async findById(playlistId: string, ownerUid: string): Promise<PlaylistResponseDto & { songs: string[] }> {
+    const doc = await this.firestore.doc(`playlists/${playlistId}`).get();
+    if (!doc.exists) throw new NotFoundException('Playlist not found');
+
+    const data = doc.data() as PlaylistDocument;
+    if (data.ownerUid !== ownerUid && data.ownerUid !== null) {
+      throw new ForbiddenException('You do not have permission to view this playlist');
+    }
+
+    const songsSnapshot = await this.firestore
+      .collection(`playlists/${playlistId}/songs`)
+      .orderBy('position', 'asc')
+      .get();
+
+    const songIds = songsSnapshot.docs.map(d => d.id);
+
+    return {
+      id: doc.id,
+      name: data.name,
+      description: data.description,
+      ownerUid: data.ownerUid,
+      type: data.type,
+      createdAt: data.createdAt,
+      songs: songIds,
+    };
+  }
+
+  async getSongs(playlistId: string, ownerUid: string): Promise<string[]> {
+    const doc = await this.firestore.doc(`playlists/${playlistId}`).get();
+    if (!doc.exists) throw new NotFoundException('Playlist not found');
+
+    const data = doc.data() as PlaylistDocument;
+    if (data.ownerUid !== ownerUid && data.ownerUid !== null) {
+      throw new ForbiddenException('You do not have permission to view this playlist');
+    }
+
+    const songsSnapshot = await this.firestore
+      .collection(`playlists/${playlistId}/songs`)
+      .orderBy('position', 'asc')
+      .get();
+
+    return songsSnapshot.docs.map(d => d.id);
+  }
+
   async create(
     ownerUid: string,
     dto: CreatePlaylistDto,
