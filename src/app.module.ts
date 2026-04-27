@@ -12,6 +12,8 @@ import { SyncModule } from './sync/sync.module';
 import { AuthModule } from './auth/auth.module';
 import { AdminController } from './auth/admin.controller';
 
+import { UsersModule } from './users/users.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -25,6 +27,7 @@ import { AdminController } from './auth/admin.controller';
     SearchModule,
     SuggestionsModule,
     SyncModule,
+    UsersModule,
   ],
   controllers: [AdminController],
   providers: [],

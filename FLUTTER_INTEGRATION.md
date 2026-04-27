@@ -115,6 +115,31 @@ GET /songs?page=1&pageSize=20
 
 ---
 
+### Users (requires login)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/users/me` | Required | Get user profile (liked + downloaded song IDs) |
+| GET | `/users/me/liked-songs` | Required | Get liked song IDs |
+| GET | `/users/me/liked-songs/:songId` | Required | Check if song is liked |
+| POST | `/users/me/liked-songs/:songId` | Required | Like a song |
+| DELETE | `/users/me/liked-songs/:songId` | Required | Unlike a song |
+| GET | `/users/me/downloads` | Required | Get downloaded song IDs |
+| POST | `/users/me/downloads/:songId` | Required | Mark song as downloaded |
+| DELETE | `/users/me/downloads/:songId` | Required | Remove download record |
+
+#### Profile response
+```json
+{
+  "uid": "firebase-uid",
+  "likedSongs": ["songId1", "songId2"],
+  "downloadedSongs": ["songId3"],
+  "updatedAt": "2026-04-27T10:00:00.000Z"
+}
+```
+
+---
+
 ### Playlists (requires login)
 
 | Method | Endpoint | Auth | Description |
@@ -240,6 +265,11 @@ All errors follow this shape:
 - [ ] Implement Google Sign-In (or email/password) flow
 - [ ] Call `getIdToken(forceRefresh: true)` after login to get latest claims
 - [ ] Implement `hasPermission(permission)` helper using `getIdTokenResult()`
+- [ ] Integrate `GET /users/me` to load user profile on app start
+- [ ] Integrate `POST /users/me/liked-songs/:songId` and `DELETE` for like/unlike toggle
+- [ ] Integrate `GET /users/me/liked-songs/:songId` to show liked state on song cards
+- [ ] Integrate `POST /users/me/downloads/:songId` when user downloads a song
+- [ ] Integrate `DELETE /users/me/downloads/:songId` when user removes a download
 - [ ] Integrate `GET /songs/trending` for home screen
 - [ ] Integrate `GET /songs/search-youtube?query=` for search screen
 - [ ] Integrate `GET /suggestions?q=` for search autocomplete
