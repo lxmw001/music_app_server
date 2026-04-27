@@ -267,17 +267,62 @@ final data = await api.get('/suggestions?q=${Uri.encodeComponent(query)}', requi
 
 ### Playlists
 
-All require auth. Available at both `/playlists` and `/users/me/playlists` (same behavior).
+All require auth. Use the `/users/me/playlists` path.
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /users/me/playlists` | Get all user playlists |
-| `GET /users/me/playlists/:id` | Get playlist with song IDs |
-| `GET /users/me/playlists/:id/songs` | Get ordered song IDs |
-| `POST /users/me/playlists` | Create a playlist |
-| `POST /users/me/playlists/:id/songs` | Add a song |
-| `DELETE /users/me/playlists/:id/songs/:songId` | Remove a song |
-| `DELETE /users/me/playlists/:id` | Delete a playlist |
+**PlaylistResponse shape:**
+```json
+{
+  "id": "playlist-id",
+  "name": "My Playlist",
+  "description": null,
+  "ownerUid": "firebase-uid",
+  "type": "user",
+  "createdAt": "2026-04-27T10:00:00.000Z",
+  "songs": ["songId1", "songId2", "songId3"]
+}
+```
+
+#### `GET /users/me/playlists`
+```dart
+final data = await api.get('/users/me/playlists');
+// Returns: List of PlaylistResponse (without songs field)
+```
+
+#### `GET /users/me/playlists/:id`
+```dart
+final data = await api.get('/users/me/playlists/$playlistId');
+// Returns: PlaylistResponse with songs: [songId1, songId2, ...]
+```
+
+#### `GET /users/me/playlists/:id/songs`
+```dart
+final List<String> songIds = List<String>.from(await api.get('/users/me/playlists/$playlistId/songs'));
+// Then fetch each: await api.get('/songs/$songId')
+```
+
+#### `POST /users/me/playlists`
+```dart
+final data = await api.post('/users/me/playlists', body: {
+  'name': 'My Playlist',
+  'description': 'Optional description',
+});
+```
+
+#### `POST /users/me/playlists/:id/songs`
+```dart
+await api.post('/users/me/playlists/$playlistId/songs', body: {'songId': songId});
+```
+
+#### `DELETE /users/me/playlists/:id/songs/:songId`
+```dart
+await api.delete('/users/me/playlists/$playlistId/songs/$songId');
+```
+
+#### `DELETE /users/me/playlists/:id`
+Returns 204.
+```dart
+await api.delete('/users/me/playlists/$playlistId');
+```
 
 ---
 
