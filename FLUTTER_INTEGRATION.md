@@ -1,4 +1,4 @@
-# Flutter Integration Guide
+# Flutter Integration Guide — Music App API
 
 ## Base URL
 
@@ -11,124 +11,334 @@ Local:      http://localhost:3000
 
 ## 1. Firebase Setup
 
-### pubspec.yaml dependencies
+### pubspec.yaml
 ```yaml
 dependencies:
   firebase_core: ^3.x.x
   firebase_auth: ^5.x.x
   google_sign_in: ^6.x.x   # if using Google login
-  http: ^1.x.x              # or dio
+  http: ^1.x.x
 ```
 
 ### main.dart
 ```dart
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(MyApp());
 }
 ```
 
 ---
 
-## 2. Authentication
+## 2. Auth Helper
 
-### Get ID token (call before every API request)
-```dart
-Future<String?> getToken() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return null;
-  return await user.getIdToken(); // auto-refreshes if expired
-}
-```
+Always call `getIdToken()` fresh before each request — it auto-refreshes when expired.
 
-### Force token refresh (after permission changes)
 ```dart
-final token = await user.getIdToken(true); // forceRefresh: true
-```
+class ApiService {
+  static const String baseUrl = 'https://your-cloud-run-url';
 
-### API request helper
-```dart
-Future<http.Response> apiGet(String path, {bool requiresAuth = true}) async {
-  final headers = <String, String>{'Content-Type': 'application/json'};
-  if (requiresAuth) {
-    final token = await getToken();
-    if (token != null) headers['Authorization'] = 'Bearer $token';
+  Future<String?> _getToken() async {
+    return await FirebaseAuth.instance.currentUser?.getIdToken();
   }
-  return http.get(Uri.parse('$baseUrl$path'), headers: headers);
+
+  Future<Map<String, String>> _headers({bool requiresAuth = true}) async {
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (requiresAuth) {
+      final token = await _getToken();
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
+
+  Future<dynamic> get(String path, {bool requiresAuth = true}) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl$path'),
+      headers: await _headers(requiresAuth: requiresAuth),
+    );
+    if (res.statusCode >= 400) throw ApiException.fromResponse(res);
+    return jsonDecode(res.body);
+  }
+
+  Future<dynamic> post(String path, {Map<String, dynamic>? body, bool requiresAuth = true}) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl$path'),
+      headers: await _headers(requiresAuth: requiresAuth),
+      body: body != null ? jsonEncode(body) : null,
+    );
+    if (res.statusCode >= 400) throw ApiException.fromResponse(res);
+    return res.statusCode == 204 ? null : jsonDecode(res.body);
+  }
+
+  Future<dynamic> delete(String path, {bool requiresAuth = true}) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl$path'),
+      headers: await _headers(requiresAuth: requiresAuth),
+    );
+    if (res.statusCode >= 400) throw ApiException.fromResponse(res);
+    return null;
+  }
+}
+
+class ApiException implements Exception {
+  final int statusCode;
+  final String message;
+  ApiException(this.statusCode, this.message);
+
+  factory ApiException.fromResponse(http.Response res) {
+    final body = jsonDecode(res.body);
+    return ApiException(res.statusCode, body['message']?.toString() ?? 'Unknown error');
+  }
 }
 ```
 
 ---
 
-## 3. Endpoints
+## 3. Permissions
+
+Permissions are Firebase custom claims set by an admin. Check them from the token result.
+
+```dart
+Future<bool> hasPermission(String permission) async {
+  final result = await FirebaseAuth.instance.currentUser?.getIdTokenResult();
+  final perms = result?.claims?['permissions'] as List<dynamic>? ?? [];
+  return perms.contains(permission);
+}
+
+// After admin grants a permission, force-refresh the token:
+await FirebaseAuth.instance.currentUser?.getIdToken(true);
+```
+
+### Available permissions
+| Permission | Feature |
+|------------|---------|
+| `suggest_playlists` | AI playlist suggestions |
+| `offline_play` | Offline download/playback |
+
+---
+
+## 4. API Reference
+
+### Error shape (all 4xx/5xx)
+```json
+{ "statusCode": 404, "message": "Song not found", "timestamp": "2026-04-27T10:00:00.000Z" }
+```
+
+---
 
 ### Songs
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/songs` | Optional | List songs (paginated) |
-| GET | `/songs/:id` | Optional | Get song by ID |
-| GET | `/songs/trending?country=EC` | Optional | Trending songs (last 7 days) |
-| GET | `/songs/trending?country=EC&force=true` | Optional | Force fresh trending |
-| GET | `/songs/search-youtube?query=bad+bunny` | Optional | Search YouTube |
-| GET | `/songs/:id/generate-playlist?limit=30` | Optional | Generate playlist from seed song |
-| GET | `/songs/:id/generate-playlist?limit=30&search=sad+reggaeton` | Optional | Context-aware playlist |
-| POST | `/songs/:id/refresh-metadata` | Optional | Refresh song metadata from Last.fm |
-
-#### Pagination
-```
-GET /songs?page=1&pageSize=20
+#### `GET /songs?page=1&pageSize=20`
+List songs with pagination. Auth optional.
+```dart
+final data = await api.get('/songs?page=1&pageSize=20', requiresAuth: false);
+// Returns: List of SongResponse
 ```
 
-#### Trending response shape
+#### `GET /songs/:id`
+Get a single song. Auth optional.
+```dart
+final data = await api.get('/songs/$songId', requiresAuth: false);
+```
+
+**SongResponse shape:**
 ```json
 {
-  "songs": [{ "id": "...", "title": "...", "artistName": "...", "youtubeId": "...", "thumbnailUrl": "...", "duration": 245, "rank": 1, "genres": ["Pop"], "tags": [] }],
-  "mixes": [{ "title": "...", "youtubeId": "...", "thumbnailUrl": "...", "rank": 1, "genres": ["Pop"] }],
-  "videos": [...],
-  "artists": [...]
+  "id": "abc123",
+  "title": "Song Title",
+  "artistName": "Artist",
+  "artistId": "artist-id",
+  "albumId": "album-id",
+  "durationSeconds": 245,
+  "coverImageUrl": "https://...",
+  "youtubeId": "yt-abc",
+  "genre": "Pop",
+  "tags": ["pop", "2024"]
 }
+```
+
+#### `GET /songs/trending?country=EC&limit=50`
+Most viewed music videos from the last 7 days. Auth optional.
+```dart
+final data = await api.get('/songs/trending?country=EC', requiresAuth: false);
+// Returns: SearchYouTubeResponse
+```
+
+Add `&force=true` to bypass cache and fetch fresh from YouTube.
+
+#### `GET /songs/search-youtube?query=bad+bunny`
+Search YouTube and classify results. Auth optional.
+```dart
+final data = await api.get('/songs/search-youtube?query=${Uri.encodeComponent(query)}', requiresAuth: false);
+// Returns: SearchYouTubeResponse
+```
+
+**SearchYouTubeResponse shape:**
+```json
+{
+  "songs": [
+    {
+      "id": "firestore-id",
+      "title": "Song Title",
+      "artistName": "Artist",
+      "youtubeId": "abc123",
+      "thumbnailUrl": "https://...",
+      "duration": 245,
+      "rank": 1,
+      "genres": ["Reggaeton", "Latin"],
+      "tags": ["urban", "2024"],
+      "album": "Album Name",
+      "listeners": 5000000
+    }
+  ],
+  "mixes": [{ "title": "Mix Title", "youtubeId": "xyz", "thumbnailUrl": "https://...", "rank": 1, "genres": ["Pop"] }],
+  "videos": [{ "title": "Video Title", "youtubeId": "def", "thumbnailUrl": "https://...", "rank": 1 }],
+  "artists": [{ "id": "artist-id", "name": "Artist", "imageUrl": "https://...", "rank": 1 }]
+}
+```
+
+#### `GET /songs/:id/generate-playlist?limit=30&search=sad+reggaeton`
+Generate a playlist from a seed song. `search` is optional — when provided, Gemini uses it as mood/vibe context. Auth optional.
+```dart
+final data = await api.get('/songs/$songId/generate-playlist?limit=30&search=${Uri.encodeComponent(search)}');
+// Returns: List of SearchSongDto
+```
+
+#### `POST /songs/:id/refresh-metadata`
+Refresh a song's metadata from Last.fm. Auth optional.
+```dart
+await api.post('/songs/$songId/refresh-metadata');
 ```
 
 ---
 
 ### Artists
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/artists` | Required | List artists |
-| GET | `/artists/:id` | Required | Get artist by ID |
-| GET | `/artists/:id/songs` | Required | Artist's songs |
-| GET | `/artists/:id/albums` | Required | Artist's albums |
+All require auth.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /artists?page=1&pageSize=20` | List artists |
+| `GET /artists/:id` | Get artist |
+| `GET /artists/:id/songs` | Artist's songs |
+| `GET /artists/:id/albums` | Artist's albums |
+
+**ArtistResponse shape:**
+```json
+{ "id": "...", "name": "Artist Name", "biography": "...", "profileImageUrl": "https://..." }
+```
 
 ---
 
 ### Albums
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/albums` | Required | List albums |
-| GET | `/albums/:id` | Required | Get album by ID |
+All require auth.
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /albums?page=1&pageSize=20` | List albums |
+| `GET /albums/:id` | Get album |
+
+**AlbumResponse shape:**
+```json
+{ "id": "...", "title": "Album Title", "releaseYear": 2024, "coverImageUrl": "https://...", "artistId": "..." }
+```
 
 ---
 
-### Users (requires login)
+### Search & Suggestions
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/users/me` | Required | Get user profile (liked + downloaded song IDs) |
-| GET | `/users/me/liked-songs` | Required | Get liked song IDs |
-| GET | `/users/me/liked-songs/:songId` | Required | Check if song is liked |
-| POST | `/users/me/liked-songs/:songId` | Required | Like a song |
-| DELETE | `/users/me/liked-songs/:songId` | Required | Unlike a song |
-| GET | `/users/me/downloads` | Required | Get downloaded song IDs |
-| POST | `/users/me/downloads/:songId` | Required | Mark song as downloaded |
-| DELETE | `/users/me/downloads/:songId` | Required | Remove download record |
+#### `GET /search?q=rock`
+Search across songs, artists, albums, and playlists. Requires auth.
+```dart
+final data = await api.get('/search?q=${Uri.encodeComponent(query)}');
+// Returns: { songs: [...], artists: [...], albums: [...], playlists: [...] }
+```
 
-#### Profile response
+#### `GET /suggestions?q=ro`
+Autocomplete suggestions. Minimum 2 characters. Auth optional.
+```dart
+final data = await api.get('/suggestions?q=${Uri.encodeComponent(query)}', requiresAuth: false);
+// Returns: List of { id, name, type: "song"|"artist"|"album"|"playlist" }
+```
+
+---
+
+### Playlists
+
+All require auth.
+
+#### `GET /playlists`
+Get all playlists owned by the authenticated user.
+```dart
+final data = await api.get('/playlists');
+// Returns: List of PlaylistResponse
+```
+
+#### `GET /playlists/:id`
+Get a single playlist with its song IDs.
+```dart
+final data = await api.get('/playlists/$playlistId');
+```
+
+**PlaylistResponse shape:**
+```json
+{
+  "id": "playlist-id",
+  "name": "My Playlist",
+  "description": null,
+  "ownerUid": "firebase-uid",
+  "type": "user",
+  "createdAt": { "seconds": 1714000000, "nanoseconds": 0 },
+  "songs": ["songId1", "songId2", "songId3"]
+}
+```
+
+#### `GET /playlists/:id/songs`
+Get ordered song IDs for a playlist.
+```dart
+final List<String> songIds = await api.get('/playlists/$playlistId/songs');
+```
+
+#### `POST /playlists`
+Create a new playlist.
+```dart
+final data = await api.post('/playlists', body: { 'name': 'My Playlist', 'description': 'Optional' });
+// Returns: PlaylistResponse (without songs field)
+```
+
+#### `POST /playlists/:id/songs`
+Add a song to a playlist.
+```dart
+await api.post('/playlists/$playlistId/songs', body: { 'songId': songId });
+```
+
+#### `DELETE /playlists/:id/songs/:songId`
+Remove a song from a playlist.
+```dart
+await api.delete('/playlists/$playlistId/songs/$songId');
+```
+
+#### `DELETE /playlists/:id`
+Delete a playlist (owner only). Returns 204.
+```dart
+await api.delete('/playlists/$playlistId');
+```
+
+---
+
+### User Data (liked songs, downloads)
+
+All require auth. All scoped to the authenticated user automatically.
+
+#### `GET /users/me`
+Get full user profile.
+```dart
+final data = await api.get('/users/me');
+```
+
+**Profile shape:**
 ```json
 {
   "uid": "firebase-uid",
@@ -138,144 +348,96 @@ GET /songs?page=1&pageSize=20
 }
 ```
 
----
-
-### Playlists (requires login)
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/playlists` | Required | Create playlist |
-| GET | `/playlists` | Required | Get user's playlists |
-| DELETE | `/playlists/:id` | Required | Delete playlist (owner only) |
-| POST | `/playlists/:id/songs` | Required | Add song to playlist |
-| DELETE | `/playlists/:id/songs/:songId` | Required | Remove song from playlist |
-
-#### Create playlist body
-```json
-{ "name": "My Playlist" }
-```
-
-#### Add song body
-```json
-{ "songId": "firestore-song-id" }
-```
-
----
-
-### Search & Suggestions
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/search?q=rock` | Required | Search across all entities |
-| GET | `/suggestions?q=ro` | Optional | Autocomplete suggestions (min 2 chars) |
-
-#### Search response
-```json
-{
-  "songs": [...],
-  "artists": [...],
-  "albums": [...],
-  "playlists": [...]
-}
-```
-
-#### Suggestion item shape
-```json
-{ "id": "...", "name": "...", "type": "song" | "artist" | "album" | "playlist" }
-```
-
----
-
-### Sync (admin only)
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/sync/trigger` | Admin | Trigger music sync |
-
-#### Sync body
-```json
-{ "genres": ["Rock", "Pop"], "force": false }
-```
-
----
-
-## 4. Permissions
-
-Permissions are stored as Firebase custom claims (`permissions: string[]`).
-
-### Known permissions
-| Permission | Description |
-|------------|-------------|
-| `suggest_playlists` | Access to AI playlist suggestions |
-| `offline_play` | Access to offline playback features |
-
-### Check permission in Flutter
+#### `GET /users/me/liked-songs`
+Get list of liked song IDs.
 ```dart
-Future<bool> hasPermission(String permission) async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return false;
-  final token = await user.getIdTokenResult();
-  final permissions = token.claims?['permissions'] as List<dynamic>? ?? [];
-  return permissions.contains(permission);
-}
+final List<String> liked = await api.get('/users/me/liked-songs');
 ```
 
-### Usage example
+#### `GET /users/me/liked-songs/:songId`
+Check if a specific song is liked.
 ```dart
-if (await hasPermission('suggest_playlists')) {
-  // show playlist suggestion UI
-}
+final data = await api.get('/users/me/liked-songs/$songId');
+// Returns: { "liked": true }
 ```
 
-### After permission is granted by admin
+#### `POST /users/me/liked-songs/:songId`
+Like a song.
 ```dart
-// Force token refresh to get updated claims
-await FirebaseAuth.instance.currentUser?.getIdToken(true);
+final data = await api.post('/users/me/liked-songs/$songId');
+// Returns: { "likedSongs": ["songId1", "songId2"] }
+```
+
+#### `DELETE /users/me/liked-songs/:songId`
+Unlike a song.
+```dart
+await api.delete('/users/me/liked-songs/$songId');
+```
+
+#### `GET /users/me/downloads`
+Get list of downloaded song IDs.
+```dart
+final List<String> downloads = await api.get('/users/me/downloads');
+```
+
+#### `POST /users/me/downloads/:songId`
+Mark a song as downloaded (call after local download completes).
+```dart
+await api.post('/users/me/downloads/$songId');
+```
+
+#### `DELETE /users/me/downloads/:songId`
+Remove a download record (call when user deletes local file).
+```dart
+await api.delete('/users/me/downloads/$songId');
 ```
 
 ---
 
-## 5. Error Handling
+## 5. Flutter Implementation Checklist
 
-All errors follow this shape:
-```json
-{
-  "statusCode": 400,
-  "message": "Validation error message",
-  "timestamp": "2026-04-27T10:00:00.000Z"
-}
-```
-
-| Status | Meaning |
-|--------|---------|
-| 400 | Bad request / validation error |
-| 401 | Missing or invalid token |
-| 403 | Forbidden (wrong owner or missing permission) |
-| 404 | Resource not found |
-| 500 | Internal server error |
-
----
-
-## 6. Flutter Tasks Checklist
-
+### Setup
 - [ ] Add Firebase dependencies to `pubspec.yaml`
 - [ ] Initialize Firebase in `main.dart`
-- [ ] Implement `getToken()` helper that auto-refreshes
-- [ ] Implement `ApiService` with base URL and auth header injection
+- [ ] Implement `ApiService` with token injection and error handling
+- [ ] Implement `hasPermission(permission)` helper
+
+### Auth
 - [ ] Implement Google Sign-In (or email/password) flow
-- [ ] Call `getIdToken(forceRefresh: true)` after login to get latest claims
-- [ ] Implement `hasPermission(permission)` helper using `getIdTokenResult()`
-- [ ] Integrate `GET /users/me` to load user profile on app start
-- [ ] Integrate `POST /users/me/liked-songs/:songId` and `DELETE` for like/unlike toggle
-- [ ] Integrate `GET /users/me/liked-songs/:songId` to show liked state on song cards
-- [ ] Integrate `POST /users/me/downloads/:songId` when user downloads a song
-- [ ] Integrate `DELETE /users/me/downloads/:songId` when user removes a download
-- [ ] Integrate `GET /songs/trending` for home screen
-- [ ] Integrate `GET /songs/search-youtube?query=` for search screen
-- [ ] Integrate `GET /suggestions?q=` for search autocomplete
-- [ ] Integrate `GET /songs/:id/generate-playlist?search=` for playlist generation
-- [ ] Integrate `POST /playlists` and `GET /playlists` for user playlists
-- [ ] Gate playlist suggestion UI behind `suggest_playlists` permission check
-- [ ] Gate offline download UI behind `offline_play` permission check
-- [ ] Handle 401 responses by redirecting to login screen
-- [ ] Handle 403 responses by showing permission-denied UI
+- [ ] On login, call `getIdToken(forceRefresh: true)` to get latest claims
+- [ ] Handle 401 → redirect to login screen
+- [ ] Handle 403 → show permission-denied UI
+
+### Home Screen
+- [ ] `GET /songs/trending?country=EC` for trending songs
+- [ ] `GET /suggestions?q=` for search autocomplete
+
+### Search Screen
+- [ ] `GET /songs/search-youtube?query=` for full search results
+- [ ] `GET /search?q=` for cross-entity search
+
+### Song Detail / Player
+- [ ] `GET /songs/:id` for song details
+- [ ] `GET /users/me/liked-songs/:songId` to show liked state
+- [ ] `POST/DELETE /users/me/liked-songs/:songId` for like toggle
+- [ ] `GET /songs/:id/generate-playlist?search=` for "More like this"
+
+### Playlists Screen
+- [ ] `GET /playlists` to list user playlists
+- [ ] `GET /playlists/:id` to open a playlist
+- [ ] `GET /playlists/:id/songs` then `GET /songs/:id` for each to load songs
+- [ ] `POST /playlists` to create a new playlist
+- [ ] `POST /playlists/:id/songs` to add a song
+- [ ] `DELETE /playlists/:id/songs/:songId` to remove a song
+- [ ] `DELETE /playlists/:id` to delete a playlist
+
+### Downloads (requires `offline_play` permission)
+- [ ] Check `hasPermission('offline_play')` before showing download UI
+- [ ] `GET /users/me/downloads` to load downloaded song IDs on app start
+- [ ] `POST /users/me/downloads/:songId` after local download completes
+- [ ] `DELETE /users/me/downloads/:songId` when user removes local file
+
+### Artists & Albums
+- [ ] `GET /artists/:id` for artist profile
+- [ ] `GET /artists/:id/songs` for artist's songs
+- [ ] `GET /albums/:id` for album detail
