@@ -267,64 +267,17 @@ final data = await api.get('/suggestions?q=${Uri.encodeComponent(query)}', requi
 
 ### Playlists
 
-All require auth.
+All require auth. Available at both `/playlists` and `/users/me/playlists` (same behavior).
 
-#### `GET /playlists`
-Get all playlists owned by the authenticated user.
-```dart
-final data = await api.get('/playlists');
-// Returns: List of PlaylistResponse
-```
-
-#### `GET /playlists/:id`
-Get a single playlist with its song IDs.
-```dart
-final data = await api.get('/playlists/$playlistId');
-```
-
-**PlaylistResponse shape:**
-```json
-{
-  "id": "playlist-id",
-  "name": "My Playlist",
-  "description": null,
-  "ownerUid": "firebase-uid",
-  "type": "user",
-  "createdAt": { "seconds": 1714000000, "nanoseconds": 0 },
-  "songs": ["songId1", "songId2", "songId3"]
-}
-```
-
-#### `GET /playlists/:id/songs`
-Get ordered song IDs for a playlist.
-```dart
-final List<String> songIds = await api.get('/playlists/$playlistId/songs');
-```
-
-#### `POST /playlists`
-Create a new playlist.
-```dart
-final data = await api.post('/playlists', body: { 'name': 'My Playlist', 'description': 'Optional' });
-// Returns: PlaylistResponse (without songs field)
-```
-
-#### `POST /playlists/:id/songs`
-Add a song to a playlist.
-```dart
-await api.post('/playlists/$playlistId/songs', body: { 'songId': songId });
-```
-
-#### `DELETE /playlists/:id/songs/:songId`
-Remove a song from a playlist.
-```dart
-await api.delete('/playlists/$playlistId/songs/$songId');
-```
-
-#### `DELETE /playlists/:id`
-Delete a playlist (owner only). Returns 204.
-```dart
-await api.delete('/playlists/$playlistId');
-```
+| Endpoint | Description |
+|----------|-------------|
+| `GET /users/me/playlists` | Get all user playlists |
+| `GET /users/me/playlists/:id` | Get playlist with song IDs |
+| `GET /users/me/playlists/:id/songs` | Get ordered song IDs |
+| `POST /users/me/playlists` | Create a playlist |
+| `POST /users/me/playlists/:id/songs` | Add a song |
+| `DELETE /users/me/playlists/:id/songs/:songId` | Remove a song |
+| `DELETE /users/me/playlists/:id` | Delete a playlist |
 
 ---
 
@@ -423,13 +376,13 @@ await api.delete('/users/me/downloads/$songId');
 - [ ] `GET /songs/:id/generate-playlist?search=` for "More like this"
 
 ### Playlists Screen
-- [ ] `GET /playlists` to list user playlists
-- [ ] `GET /playlists/:id` to open a playlist
-- [ ] `GET /playlists/:id/songs` then `GET /songs/:id` for each to load songs
-- [ ] `POST /playlists` to create a new playlist
-- [ ] `POST /playlists/:id/songs` to add a song
-- [ ] `DELETE /playlists/:id/songs/:songId` to remove a song
-- [ ] `DELETE /playlists/:id` to delete a playlist
+- [ ] `GET /users/me/playlists` to list user playlists
+- [ ] `GET /users/me/playlists/:id` to open a playlist
+- [ ] `GET /users/me/playlists/:id/songs` then `GET /songs/:id` for each to load songs
+- [ ] `POST /users/me/playlists` to create a new playlist
+- [ ] `POST /users/me/playlists/:id/songs` to add a song
+- [ ] `DELETE /users/me/playlists/:id/songs/:songId` to remove a song
+- [ ] `DELETE /users/me/playlists/:id` to delete a playlist
 
 ### Downloads (requires `offline_play` permission)
 - [ ] Check `hasPermission('offline_play')` before showing download UI
