@@ -9,4 +9,6 @@ export class SongResponseDto {
   youtubeId: string | null;
   genre: string | null;
   tags?: string[];
+  streamUrl?: string | null;
+  streamUrlExpiresAt?: string | null;
 }

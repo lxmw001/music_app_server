@@ -147,17 +147,21 @@
 					}
 				},
 				{
-					"name": "Get Stream URL",
+					"name": "Save Stream URL",
 					"request": {
-						"method": "GET",
-						"header": [],
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"streamUrl\": \"https://rr2---sn-xxx.googlevideo.com/videoplayback?...\",\n  \"expiresAt\": \"2026-04-28T04:00:00.000Z\"\n}"
+						},
 						"url": {
 							"raw": "{{baseUrl}}/songs/:id/stream-url",
 							"host": ["{{baseUrl}}"],
 							"path": ["songs", ":id", "stream-url"],
 							"variable": [{ "key": "id", "value": "" }]
 						},
-						"description": "Get cached YouTube audio stream URL for a song. Fetches from Firestore cache (stream_url_cache) or resolves fresh from YouTube. TTL derived from expire= param in URL (~6h)."
+						"description": "Save a YouTube audio stream URL resolved by the client. Stored on the song document and returned in song responses until expired."
 					}
 				}
 			]

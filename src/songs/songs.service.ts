@@ -25,6 +25,8 @@ interface SongDocument {
   genre: string | null;
   tags: string[];
   searchQuery: string;
+  streamUrl?: string | null;
+  streamUrlExpiresAt?: FirebaseFirestore.Timestamp | null;
   createdAt: FirebaseFirestore.Timestamp;
   updatedAt: FirebaseFirestore.Timestamp;
 }
@@ -116,6 +118,7 @@ export class SongsService implements OnModuleInit {
       youtubeId: data.youtubeId,
       genre: data.genre,
       tags: data.tags,
+      ...this.resolveStreamUrl(data),
     };
 
     await this.cache.set(key, response, 300_000);
@@ -147,6 +150,7 @@ export class SongsService implements OnModuleInit {
         youtubeId: data.youtubeId,
         genre: data.genre,
         tags: data.tags,
+        ...this.resolveStreamUrl(data),
       };
     });
   }
@@ -1186,6 +1190,21 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       listeners: data.listeners,
       mbid: data.mbid,
     };
+  }
+
+  private resolveStreamUrl(data: SongDocument): { streamUrl: string | null; streamUrlExpiresAt: string | null } {
+    if (!data.streamUrl || !data.streamUrlExpiresAt) return { streamUrl: null, streamUrlExpiresAt: null };
+    const expiresAt = data.streamUrlExpiresAt.toDate();
+    if (expiresAt <= new Date()) return { streamUrl: null, streamUrlExpiresAt: null };
+    return { streamUrl: data.streamUrl, streamUrlExpiresAt: expiresAt.toISOString() };
+  }
+
+  async saveStreamUrl(id: string, streamUrl: string, expiresAt: Date): Promise<void> {
+    const doc = await this.firestore.doc(`songs/${id}`).get();
+    if (!doc.exists) throw new NotFoundException('Song not found');
+
+    await this.firestore.doc(`songs/${id}`).update({ streamUrl, streamUrlExpiresAt: expiresAt });
+    await this.cache.del(CacheKeys.song(id));
   }
 
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
