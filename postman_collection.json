@@ -145,6 +145,20 @@
 						},
 						"description": "Refresh Last.fm metadata (genres, tags, album art, listeners)"
 					}
+				},
+				{
+					"name": "Get Stream URL",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/songs/:id/stream-url",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", ":id", "stream-url"],
+							"variable": [{ "key": "id", "value": "" }]
+						},
+						"description": "Get cached YouTube audio stream URL for a song. Fetches from Firestore cache (stream_url_cache) or resolves fresh from YouTube. TTL derived from expire= param in URL (~6h)."
+					}
 				}
 			]
 		},

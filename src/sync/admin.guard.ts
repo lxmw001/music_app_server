@@ -12,6 +12,7 @@ export class AdminGuard extends FirebaseAuthGuard {
         uid: 'dev-user',
         email: 'dev@example.com',
         admin: true,
+        permissions: [],
       };
       return true;
     }
