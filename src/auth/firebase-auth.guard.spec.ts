@@ -32,7 +32,7 @@ describe('FirebaseAuthGuard', () => {
     const result = await guard.canActivate(ctx);
 
     expect(result).toBe(true);
-    expect(ctx._req.user).toEqual({ uid: 'user-1', email: 'user@test.com', admin: true });
+    expect(ctx._req.user).toEqual({ uid: 'user-1', email: 'user@test.com', admin: true, permissions: [] });
   });
 
   it('throws UnauthorizedException when no Authorization header', async () => {
