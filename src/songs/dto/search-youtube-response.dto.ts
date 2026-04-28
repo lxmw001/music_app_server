@@ -14,6 +14,8 @@ export class SearchSongDto {
   releaseDate?: string;
   listeners?: number;
   mbid?: string;
+  streamUrl?: string | null;
+  streamUrlExpiresAt?: string | null;
 }
 
 export class SearchMixDto {
@@ -22,6 +24,8 @@ export class SearchMixDto {
   thumbnailUrl: string;
   rank: number;
   genres: string[];
+  streamUrl?: string | null;
+  streamUrlExpiresAt?: string | null;
 }
 
 export class SearchVideoDto {

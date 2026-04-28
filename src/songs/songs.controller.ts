@@ -2,7 +2,6 @@ import { Body, Controller, Get, Param, Query, Post, UseGuards } from '@nestjs/co
 import { OptionalAuthGuard } from '../auth/optional-auth.guard';
 import { SongsService } from './songs.service';
 import { PaginationDto } from './dto/pagination.dto';
-import { SongResponseDto } from './dto/song-response.dto';
 import { SearchYouTubeResponseDto, SearchSongDto } from './dto/search-youtube-response.dto';
 
 @UseGuards(OptionalAuthGuard)
@@ -11,7 +10,7 @@ export class SongsController {
   constructor(private readonly songsService: SongsService) {}
 
   @Get()
-  findAll(@Query() pagination: PaginationDto): Promise<SongResponseDto[]> {
+  findAll(@Query() pagination: PaginationDto): Promise<SearchSongDto[]> {
     return this.songsService.findAll(pagination);
   }
 
@@ -35,7 +34,7 @@ export class SongsController {
   }
 
   @Get(':id')
-  findById(@Param('id') id: string): Promise<SongResponseDto> {
+  findById(@Param('id') id: string): Promise<SearchSongDto> {
     return this.songsService.findById(id);
   }
 
@@ -59,5 +58,13 @@ export class SongsController {
     @Body() body: { streamUrl: string; expiresAt: string },
   ): Promise<void> {
     return this.songsService.saveStreamUrl(id, body.streamUrl, new Date(body.expiresAt));
+  }
+
+  @Post('mixes/:youtubeId/stream-url')
+  saveMixStreamUrl(
+    @Param('youtubeId') youtubeId: string,
+    @Body() body: { streamUrl: string; expiresAt: string },
+  ): Promise<void> {
+    return this.songsService.saveMixStreamUrl(youtubeId, body.streamUrl, new Date(body.expiresAt));
   }
 }

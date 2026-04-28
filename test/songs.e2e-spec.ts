@@ -37,9 +37,8 @@ describe('Songs (e2e)', () => {
         id: 'song-1',
         title: 'Test Song',
         artistId: 'artist-1',
-        durationSeconds: 180,
+        duration: 180,
         youtubeId: 'yt-abc',
-        genre: 'Rock',
       });
     });
 

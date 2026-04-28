@@ -65,10 +65,9 @@ describe('SongsService', () => {
         title: 'Test Song',
         artistId: 'artist-1',
         albumId: null,
-        durationSeconds: 180,
-        coverImageUrl: null,
+        duration: 180,
+        thumbnailUrl: null,
         youtubeId: 'yt-abc',
-        genre: 'Rock',
       });
       expect(mockCache.set).toHaveBeenCalledWith(
         expect.any(String),

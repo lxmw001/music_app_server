@@ -22,8 +22,12 @@ interface SongDocument {
   youtubeIdPendingReview: boolean;
   artistId: string | null;
   albumId: string | null;
+  album?: string;
   genre: string | null;
+  genres?: string[];
   tags: string[];
+  listeners?: number;
+  mbid?: string;
   searchQuery: string;
   streamUrl?: string | null;
   streamUrlExpiresAt?: FirebaseFirestore.Timestamp | null;
@@ -98,26 +102,30 @@ export class SongsService implements OnModuleInit {
     }
   }
 
-  async findById(id: string): Promise<SongResponseDto> {
+  async findById(id: string): Promise<SearchSongDto> {
     const key = CacheKeys.song(id);
-    const cached = await this.cache.get<SongResponseDto>(key);
+    const cached = await this.cache.get<SearchSongDto>(key);
     if (cached) return cached;
 
     const doc = await this.firestore.doc(`songs/${id}`).get();
     if (!doc.exists) throw new NotFoundException('Song not found');
 
     const data = doc.data() as SongDocument;
-    const response: SongResponseDto = {
+    const response: SearchSongDto = {
       id: doc.id,
       title: data.title,
-      artistId: data.artistId,
       artistName: data.artistName,
+      artistId: data.artistId,
       albumId: data.albumId,
-      durationSeconds: data.durationSeconds,
-      coverImageUrl: data.coverImageUrl,
+      album: data.album,
+      duration: data.durationSeconds,
+      thumbnailUrl: data.coverImageUrl,
       youtubeId: data.youtubeId,
-      genre: data.genre,
-      tags: data.tags,
+      genres: data.genres || [],
+      tags: data.tags || [],
+      listeners: data.listeners,
+      mbid: data.mbid,
+      rank: 0,
       ...this.resolveStreamUrl(data),
     };
 
@@ -125,7 +133,7 @@ export class SongsService implements OnModuleInit {
     return response;
   }
 
-  async findAll(pagination: PaginationDto): Promise<SongResponseDto[]> {
+  async findAll(pagination: PaginationDto): Promise<SearchSongDto[]> {
     const { page, pageSize } = pagination;
     const limit = page * pageSize;
 
@@ -142,14 +150,18 @@ export class SongsService implements OnModuleInit {
       return {
         id: doc.id,
         title: data.title,
-        artistId: data.artistId,
         artistName: data.artistName,
+        artistId: data.artistId,
         albumId: data.albumId,
-        durationSeconds: data.durationSeconds,
-        coverImageUrl: data.coverImageUrl,
+        album: data.album,
+        duration: data.durationSeconds,
+        thumbnailUrl: data.coverImageUrl,
         youtubeId: data.youtubeId,
-        genre: data.genre,
-        tags: data.tags,
+        genres: data.genres || [],
+        tags: data.tags || [],
+        listeners: data.listeners,
+        mbid: data.mbid,
+        rank: 0,
         ...this.resolveStreamUrl(data),
       };
     });
@@ -1189,6 +1201,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       releaseDate: data.releaseDate,
       listeners: data.listeners,
       mbid: data.mbid,
+      ...this.resolveStreamUrl(data),
     };
   }
 
@@ -1205,6 +1218,10 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
 
     await this.firestore.doc(`songs/${id}`).update({ streamUrl, streamUrlExpiresAt: expiresAt });
     await this.cache.del(CacheKeys.song(id));
+  }
+
+  async saveMixStreamUrl(youtubeId: string, streamUrl: string, expiresAt: Date): Promise<void> {
+    await this.firestore.doc(`mixes/${youtubeId}`).set({ streamUrl, streamUrlExpiresAt: expiresAt }, { merge: true });
   }
 
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
@@ -1230,6 +1247,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
               releaseDate: songData.releaseDate,
               listeners: songData.listeners,
               mbid: songData.mbid,
+              ...this.resolveStreamUrl(songData as SongDocument),
             };
           }
         }
@@ -1256,9 +1274,26 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       })
     );
 
+    const mixYoutubeIds: string[] = (data.mixes || []).map((m) => m.youtubeId).filter(Boolean);
+    const mixDocs = await Promise.all(mixYoutubeIds.map((id) => this.firestore.doc(`mixes/${id}`).get()));
+    const mixStreamUrls: Record<string, { streamUrl: string | null; streamUrlExpiresAt: string | null }> = {};
+    for (const doc of mixDocs) {
+      if (doc.exists) {
+        const d = doc.data()!;
+        const expiresAt: Date = d.streamUrlExpiresAt?.toDate?.();
+        mixStreamUrls[doc.id] = expiresAt && expiresAt > new Date()
+          ? { streamUrl: d.streamUrl, streamUrlExpiresAt: expiresAt.toISOString() }
+          : { streamUrl: null, streamUrlExpiresAt: null };
+      }
+    }
+
     return {
       songs,
-      mixes: (data.mixes || []).map((m) => ({ ...m, genres: m.genres || [] })),
+      mixes: (data.mixes || []).map((m) => ({
+        ...m,
+        genres: m.genres || [],
+        ...(mixStreamUrls[m.youtubeId] ?? { streamUrl: null, streamUrlExpiresAt: null }),
+      })),
       videos: data.videos || [],
       artists,
     };

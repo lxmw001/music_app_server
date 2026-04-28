@@ -163,6 +163,24 @@
 						},
 						"description": "Save a YouTube audio stream URL resolved by the client. Stored on the song document and returned in song responses until expired."
 					}
+				},
+				{
+					"name": "Save Mix Stream URL",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"streamUrl\": \"https://rr2---sn-xxx.googlevideo.com/videoplayback?...\",\n  \"expiresAt\": \"2026-04-28T04:00:00.000Z\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/songs/mixes/:youtubeId/stream-url",
+							"host": ["{{baseUrl}}"],
+							"path": ["songs", "mixes", ":youtubeId", "stream-url"],
+							"variable": [{ "key": "youtubeId", "value": "" }]
+						},
+						"description": "Save a YouTube audio stream URL for a mix. Stored in mixes/{youtubeId} Firestore collection and returned in search results until expired."
+					}
 				}
 			]
 		},
