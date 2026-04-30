@@ -1026,15 +1026,13 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       const text = await this.gemini.generate(prompt);
       classified = JSON.parse(this.extractJson(text));
     } catch (err) {
-      this.logger.warn(`Gemini classification failed for playlist, falling back to raw YouTube results: ${err.message}`);
-      classified = {
-        songs: relatedVideos.map(r => ({
-          title: r.title,
-          artistName: r.channelTitle,
-          videoId: r.videoId,
-          genres: [],
-        })),
-      };
+      this.logger.warn(`Gemini classification failed for playlist, using heuristic fallback: ${err.message}`);
+      classified = { songs: relatedVideos.filter(r => !this.isMixOrVideo(r.title, r.durationSeconds)).map(r => ({
+        title: r.title,
+        artistName: r.channelTitle,
+        videoId: r.videoId,
+        genres: [],
+      })) };
     }
 
     // Process songs
@@ -1216,6 +1214,13 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       mbid: data.mbid,
       ...this.resolveStreamUrl(data),
     };
+  }
+
+  private isMixOrVideo(title: string, durationSeconds: number = 0): boolean {
+    const t = title.toLowerCase();
+    const mixKeywords = /\b(mix|playlist|compilation|megamix|nonstop|non-stop|mashup|medley|vol\.|best of|greatest hits|top \d|hits)\b/;
+    const videoKeywords = /\b(interview|behind the scenes|making of|live|concert|tour|reaction|review|acoustic|unplugged|documentary|trailer)\b/;
+    return mixKeywords.test(t) || videoKeywords.test(t) || durationSeconds > 20 * 60;
   }
 
   private resolveStreamUrl(data: SongDocument): { streamUrl: string | null; streamUrlExpiresAt: string | null } {
