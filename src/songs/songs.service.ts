@@ -1021,8 +1021,21 @@ Return JSON:
 
 Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.title, channel: r.channelTitle, duration: r.durationSeconds })))}`;
 
-    const text = await this.gemini.generate(prompt);
-    const classified = JSON.parse(this.extractJson(text));
+    let classified: { songs: any[] };
+    try {
+      const text = await this.gemini.generate(prompt);
+      classified = JSON.parse(this.extractJson(text));
+    } catch (err) {
+      this.logger.warn(`Gemini classification failed for playlist, falling back to raw YouTube results: ${err.message}`);
+      classified = {
+        songs: relatedVideos.map(r => ({
+          title: r.title,
+          artistName: r.channelTitle,
+          videoId: r.videoId,
+          genres: [],
+        })),
+      };
+    }
 
     // Process songs
     for (const song of classified.songs || []) {
