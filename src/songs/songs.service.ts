@@ -1038,6 +1038,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     // Process songs
     for (const song of classified.songs || []) {
       if (playlist.length >= limit) break;
+      if (!song.videoId) continue;
 
       const original = relatedVideos.find(r => r.videoId === song.videoId);
       
@@ -1088,7 +1089,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     this.logger.log(`Generated playlist with ${playlist.length} songs from YouTube related videos`);
 
     await this.firestore.doc(cacheKey).set({
-      songs: playlist.map(s => s.id),
+      songs: playlist.map(s => s.id).filter(Boolean),
       generatedAt: playlistDoc.exists ? playlistDoc.data().generatedAt : new Date(),
       lastUpdated: new Date(),
     });
