@@ -13,6 +13,7 @@ import { AuthModule } from './auth/auth.module';
 import { AdminController } from './auth/admin.controller';
 
 import { UsersModule } from './users/users.module';
+import { VibeModule } from './vibe/vibe.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module';
     SuggestionsModule,
     SyncModule,
     UsersModule,
+    VibeModule,
   ],
   controllers: [AdminController],
   providers: [],

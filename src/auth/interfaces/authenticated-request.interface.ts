@@ -4,6 +4,7 @@ export interface AuthenticatedUser {
   uid: string;
   email: string;
   admin?: boolean;
+  isPremium?: boolean;
   permissions: string[];
 }
 

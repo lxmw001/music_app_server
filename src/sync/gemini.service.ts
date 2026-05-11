@@ -258,6 +258,45 @@ Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
       .trim();
   }
 
+  async generateVibeQueries(params: {
+    vibeId: string;
+    subCategory?: string;
+    birthYear?: number;
+    genres?: string[];
+    localTime?: string;
+    dayOfWeek?: string;
+  }): Promise<string[]> {
+    const { vibeId, subCategory, birthYear, genres, localTime, dayOfWeek } = params;
+
+    const age = birthYear ? new Date().getFullYear() - birthYear : null;
+    const ageDesc = age ? `a ${age}-year-old` : 'a user';
+    const genreDesc = genres?.length ? `who likes ${genres.join(', ')}` : '';
+    const timeDesc = localTime ? (() => {
+      const h = new Date(localTime).getHours();
+      if (h >= 6 && h < 10) return 'morning';
+      if (h >= 10 && h < 18) return 'afternoon';
+      if (h >= 18 && h < 22) return 'evening';
+      return 'late night';
+    })() : '';
+    const contextDesc = [dayOfWeek, timeDesc].filter(Boolean).join(' ');
+    const vibeLabel = subCategory ? `${vibeId} (${subCategory})` : vibeId;
+
+    const prompt = `As a music expert, the user is ${ageDesc} ${genreDesc}. It's ${contextDesc}. They selected the "${vibeLabel}" vibe. Suggest 8 specific YouTube search queries to build a fitting playlist.${age ? ` Include some nostalgia from around ${birthYear! + 16}-${birthYear! + 26}.` : ''} Return ONLY a JSON array of query strings.`;
+
+    try {
+      const text = await this.generate(prompt);
+      const parsed: string[] = JSON.parse(this.extractJson(text));
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.filter((q) => typeof q === 'string' && q.length > 0);
+      }
+    } catch (error) {
+      this.logger.warn(`generateVibeQueries failed: ${(error as Error).message}`);
+    }
+
+    // Fallback: generic queries based on vibe
+    return [`${vibeId} music playlist`, `best ${vibeId} songs`, `${vibeId} ${timeDesc} music`.trim()];
+  }
+
   async rankAndDisambiguate(
     results: YouTubeSearchResult[],
     context: { title: string; artistName: string; genre: string },
