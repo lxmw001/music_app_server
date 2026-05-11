@@ -297,7 +297,7 @@ export class SongsService implements OnModuleInit {
     // YouTube search using refined query
     const results = await this.youtube.searchVideos(effectiveQuery, 20);
 
-    const allVideoIds = results.map(r => r.videoId);
+    const allVideoIds = results.map(r => r.videoId).filter(Boolean);
     const idChunks = this.chunkArray(allVideoIds, 10);
 
     // Batch-check both collections in parallel
@@ -740,7 +740,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     const trendingVideos = await this.youtube.getTrendingVideos(country, maxLimit);
 
     // Batch-check known songs and items in parallel
-    const allVideoIds = trendingVideos.map(r => r.videoId);
+    const allVideoIds = trendingVideos.map(r => r.videoId).filter(Boolean);
     const idChunks = this.chunkArray(allVideoIds, 10);
 
     const [knownSongSnapshots, knownItemSnapshots] = await Promise.all([

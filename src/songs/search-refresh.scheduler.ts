@@ -26,17 +26,24 @@ export class SearchRefreshScheduler {
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       
-      const snapshot = await this.firestore
+      // To prioritize popular searches, we fetch the top 200 searches by searchCount 
+      // and filter for staleness in memory. This avoids complex composite indexes
+      // and Firestore's range filter limitations.
+      const popularSearches = await this.firestore
         .collection('youtube_searches')
-        .where('lastUpdated', '<', sevenDaysAgo)
-        .orderBy('lastUpdated', 'asc')
-        .orderBy('searchCount', 'desc') // Prioritize popular searches
-        .limit(50) // Process 50 per day
+        .orderBy('searchCount', 'desc')
+        .limit(200)
         .get();
 
-      this.logger.log(`Found ${snapshot.size} stale searches to refresh`);
+      const staleSearches = popularSearches.docs.filter(doc => {
+        const data = doc.data();
+        const lastUpdated = data.lastUpdated?.toDate();
+        return !lastUpdated || lastUpdated < sevenDaysAgo;
+      }).slice(0, 50);
 
-      for (const doc of snapshot.docs) {
+      this.logger.log(`Found ${staleSearches.length} popular stale searches to refresh`);
+
+      for (const doc of staleSearches) {
         const data = doc.data();
         try {
           this.logger.log(`Refreshing search: "${data.query}" (searched ${data.searchCount || 0} times)`);
