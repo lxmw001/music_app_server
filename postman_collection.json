@@ -522,6 +522,28 @@
 			]
 		},
 		{
+			"name": "Vibe (Fast Mode)",
+			"item": [
+				{
+					"name": "Generate Vibe Queries",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"vibeId\": \"chill\",\n  \"subCategory\": \"lofi\",\n  \"genres\": [\"hip-hop\", \"jazz\"],\n  \"birthYear\": 1995,\n  \"localTime\": \"22:00\",\n  \"dayOfWeek\": \"Friday\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/vibe/generate",
+							"host": ["{{baseUrl}}"],
+							"path": ["vibe", "generate"]
+						},
+						"description": "Premium only (isPremium or admin). Generates YouTube search queries from a vibe/mood context via Gemini."
+					}
+				}
+			]
+		},
+		{
 			"name": "Admin",
 			"item": [
 				{
