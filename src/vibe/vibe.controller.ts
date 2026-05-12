@@ -1,8 +1,9 @@
-import { Body, Controller, ForbiddenException, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
 import { AuthenticatedRequest } from '../auth/interfaces/authenticated-request.interface';
 import { VibeRequestDto } from './dto/vibe-request.dto';
 import { VibeService } from './vibe.service';
+import { SearchSongDto } from '../songs/dto/search-youtube-response.dto';
 
 @Controller('vibe')
 @UseGuards(FirebaseAuthGuard)
@@ -10,10 +11,14 @@ export class VibeController {
   constructor(private readonly vibeService: VibeService) {}
 
   @Post('generate')
-  async generate(@Req() req: AuthenticatedRequest, @Body() dto: VibeRequestDto) {
+  async generate(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: VibeRequestDto,
+    @Query('limit') limit?: string,
+  ): Promise<SearchSongDto[]> {
     if (!req.user.isPremium && !req.user.admin) {
       throw new ForbiddenException('Fast Mode requires a premium account');
     }
-    return this.vibeService.generate(dto);
+    return this.vibeService.generate(dto, limit ? parseInt(limit) : 10);
   }
 }

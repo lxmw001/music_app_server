@@ -265,8 +265,9 @@ Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
     genres?: string[];
     localTime?: string;
     dayOfWeek?: string;
-  }): Promise<string[]> {
-    const { vibeId, subCategory, birthYear, genres, localTime, dayOfWeek } = params;
+    limit?: number;
+  }): Promise<{ title: string; artistName: string; youtubeId: string }[]> {
+    const { vibeId, subCategory, birthYear, genres, localTime, dayOfWeek, limit = 10 } = params;
 
     const age = birthYear ? new Date().getFullYear() - birthYear : null;
     const ageDesc = age ? `a ${age}-year-old` : 'a user';
@@ -281,20 +282,21 @@ Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
     const contextDesc = [dayOfWeek, timeDesc].filter(Boolean).join(' ');
     const vibeLabel = subCategory ? `${vibeId} (${subCategory})` : vibeId;
 
-    const prompt = `As a music expert, the user is ${ageDesc} ${genreDesc}. It's ${contextDesc}. They selected the "${vibeLabel}" vibe. Suggest 8 specific YouTube search queries to build a fitting playlist.${age ? ` Include some nostalgia from around ${birthYear! + 16}-${birthYear! + 26}.` : ''} Return ONLY a JSON array of query strings.`;
+    const prompt = `As a music expert, the user is ${ageDesc} ${genreDesc}. It's ${contextDesc}. They selected the "${vibeLabel}" vibe.${age ? ` Include some nostalgia from around ${birthYear! + 16}-${birthYear! + 26}.` : ''}
+Suggest ${limit} real songs that fit this vibe. For each song provide the real YouTube video ID (the 11-character ID from youtube.com/watch?v=XXXXXXXXXXX).
+Return ONLY a JSON array: [{"title":"Song Title","artistName":"Artist Name","youtubeId":"XXXXXXXXXXX"}]`;
 
     try {
       const text = await this.generate(prompt);
-      const parsed: string[] = JSON.parse(this.extractJson(text));
+      const parsed: { title: string; artistName: string; youtubeId: string }[] = JSON.parse(this.extractJson(text));
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.filter((q) => typeof q === 'string' && q.length > 0);
+        return parsed.filter(s => s.title && s.artistName && s.youtubeId?.length === 11);
       }
     } catch (error) {
       this.logger.warn(`generateVibeQueries failed: ${(error as Error).message}`);
     }
 
-    // Fallback: generic queries based on vibe
-    return [`${vibeId} music playlist`, `best ${vibeId} songs`, `${vibeId} ${timeDesc} music`.trim()];
+    return [];
   }
 
   async rankAndDisambiguate(

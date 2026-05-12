@@ -525,20 +525,21 @@
 			"name": "Vibe (Fast Mode)",
 			"item": [
 				{
-					"name": "Generate Vibe Queries",
+					"name": "Generate Vibe Playlist",
 					"request": {
 						"method": "POST",
 						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"vibeId\": \"chill\",\n  \"subCategory\": \"lofi\",\n  \"genres\": [\"hip-hop\", \"jazz\"],\n  \"birthYear\": 1995,\n  \"localTime\": \"22:00\",\n  \"dayOfWeek\": \"Friday\"\n}"
+							"raw": "{\n  \"vibeId\": \"chill\",\n  \"subCategory\": \"lofi\",\n  \"genres\": [\"hip-hop\", \"jazz\"],\n  \"birthYear\": 1995,\n  \"localTime\": \"2026-05-12T22:00:00\",\n  \"dayOfWeek\": \"Monday\"\n}"
 						},
 						"url": {
-							"raw": "{{baseUrl}}/vibe/generate",
+							"raw": "{{baseUrl}}/vibe/generate?limit=10",
 							"host": ["{{baseUrl}}"],
-							"path": ["vibe", "generate"]
+							"path": ["vibe", "generate"],
+							"query": [{ "key": "limit", "value": "10" }]
 						},
-						"description": "Premium only (isPremium or admin). Generates YouTube search queries from a vibe/mood context via Gemini."
+						"description": "Premium only (isPremium or admin). Returns SearchSongDto[] — Gemini picks songs with YouTube IDs, enriched via Last.fm. Results cached 7 days per param combination."
 					}
 				}
 			]
