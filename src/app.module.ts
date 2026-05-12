@@ -14,6 +14,7 @@ import { AdminController } from './auth/admin.controller';
 
 import { UsersModule } from './users/users.module';
 import { VibeModule } from './vibe/vibe.module';
+import { VibesModule } from './vibes/vibes.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { VibeModule } from './vibe/vibe.module';
     SyncModule,
     UsersModule,
     VibeModule,
+    VibesModule,
   ],
   controllers: [AdminController],
   providers: [],
