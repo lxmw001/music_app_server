@@ -32,9 +32,9 @@ const vibes = [
     icon: '⚡',
     order: 2,
     subCategories: [
-      { key: 'vibe_energetic_workout', promptLabel: 'Ejercicio', icon: '🏋️' },
-      { key: 'vibe_energetic_party', promptLabel: 'Fiesta', icon: '🎉' },
+      { key: 'vibe_energetic_hiit', promptLabel: 'HIIT / Cardio', icon: '🏋️' },
       { key: 'vibe_energetic_running', promptLabel: 'Correr', icon: '🏃' },
+      { key: 'vibe_energetic_party', promptLabel: 'Fiesta', icon: '🎉' },
     ],
   },
   {
@@ -96,6 +96,37 @@ const vibes = [
     subCategories: [
       { key: 'vibe_night_late', promptLabel: 'Trasnoche', icon: '🌃' },
       { key: 'vibe_night_club', promptLabel: 'Club', icon: '🪩' },
+    ],
+  },
+  {
+    labelKey: 'vibe_sleep',
+    promptLabel: 'Dormir',
+    icon: '😴',
+    order: 9,
+    subCategories: [
+      { key: 'vibe_sleep_deep', promptLabel: 'Sueño profundo', icon: '🌌' },
+      { key: 'vibe_sleep_relax', promptLabel: 'Relajación', icon: '🛁' },
+    ],
+  },
+  {
+    labelKey: 'vibe_chores',
+    promptLabel: 'Tareas del hogar',
+    icon: '🏠',
+    order: 10,
+    subCategories: [
+      { key: 'vibe_chores_upbeat', promptLabel: 'Animado', icon: '🧹' },
+      { key: 'vibe_chores_podcast_style', promptLabel: 'Tranquilo', icon: '🎙️' },
+    ],
+  },
+  {
+    labelKey: 'vibe_nostalgia',
+    promptLabel: 'Nostalgia',
+    icon: '🕰️',
+    order: 11,
+    subCategories: [
+      { key: 'vibe_nostalgia_90s', promptLabel: 'Años 90', icon: '📼' },
+      { key: 'vibe_nostalgia_2000s', promptLabel: 'Años 2000', icon: '💿' },
+      { key: 'vibe_nostalgia_personal', promptLabel: 'Mi época', icon: '🎞️' },
     ],
   },
 ];
