@@ -36,7 +36,7 @@ export class VibeService {
     const vibeData = vibeDoc.exists ? vibeDoc.data()! : null;
     const vibePromptLabel: string = vibeData?.promptLabel ?? dto.vibeId;
     const subCategoryPromptLabel: string | undefined = dto.subCategoryKey
-      ? (vibeData?.subCategories ?? []).find((s: any) => s.key === dto.subCategoryKey)?.promptLabel ?? dto.subCategoryKey
+      ? (vibeData?.subCategories ?? []).find((s: any) => s.labelKey === dto.subCategoryKey)?.promptLabel ?? dto.subCategoryKey
       : undefined;
 
     const suggestions = await this.gemini.generateVibeQueries({
