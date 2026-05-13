@@ -21,6 +21,7 @@ const vibes = [
       { key: 'vibe_chill_jazz', promptLabel: 'Jazz suave', icon: '🎷' },
       { key: 'vibe_chill_nature', promptLabel: 'Naturaleza', icon: '🌿' },
       { key: 'vibe_chill_piano', promptLabel: 'Piano', icon: '🎹' },
+      { key: 'vibe_chill_yoga', promptLabel: 'Yoga', icon: '🧘' },
     ],
   },
   {
@@ -32,7 +33,6 @@ const vibes = [
       { key: 'vibe_energetic_hiit', promptLabel: 'HIIT / Cardio', icon: '🏋️' },
       { key: 'vibe_energetic_running', promptLabel: 'Correr', icon: '🏃' },
       { key: 'vibe_energetic_cycling', promptLabel: 'Ciclismo', icon: '🚴' },
-      { key: 'vibe_energetic_yoga', promptLabel: 'Yoga', icon: '🧘' },
       { key: 'vibe_energetic_sports', promptLabel: 'Deportes', icon: '⚽' },
       { key: 'vibe_energetic_dance', promptLabel: 'Baile', icon: '💃' },
     ],
@@ -107,7 +107,7 @@ const vibes = [
       { key: 'vibe_happy_morning', promptLabel: 'Mañana positiva', icon: '🌅' },
       { key: 'vibe_happy_road_trip', promptLabel: 'Viaje en auto', icon: '🚗' },
       { key: 'vibe_happy_beach', promptLabel: 'Playa', icon: '🏖️' },
-      { key: 'vibe_happy_cooking', promptLabel: 'Cocinando', icon: '👨‍🍳' },
+      { key: 'vibe_happy_celebration', promptLabel: 'Celebración', icon: '🥳' },
     ],
   },
   {
@@ -166,10 +166,32 @@ const vibes = [
     ],
   },
   {
+    labelKey: 'vibe_gaming',
+    promptLabel: 'Gaming',
+    icon: '🎮',
+    order: 12,
+    subCategories: [
+      { key: 'vibe_gaming_rpg', promptLabel: 'RPG Ambiental', icon: '⚔️' },
+      { key: 'vibe_gaming_hype', promptLabel: 'Competitivo', icon: '🖱️' },
+      { key: 'vibe_gaming_retro', promptLabel: 'Retro 8-bit', icon: '👾' },
+    ],
+  },
+  {
+    labelKey: 'vibe_travel',
+    promptLabel: 'Viaje',
+    icon: '✈️',
+    order: 13,
+    subCategories: [
+      { key: 'vibe_travel_commute', promptLabel: 'Trayecto diario', icon: '🎧' },
+      { key: 'vibe_travel_road_trip', promptLabel: 'Viaje en carretera', icon: '🛣️' },
+      { key: 'vibe_travel_flying', promptLabel: 'Volando', icon: '☁️' },
+    ],
+  },
+  {
     labelKey: 'vibe_nostalgia',
     promptLabel: 'Nostalgia',
     icon: '🕰️',
-    order: 12,
+    order: 14,
     subCategories: [
       { key: 'vibe_nostalgia_80s', promptLabel: 'Años 80', icon: '📻' },
       { key: 'vibe_nostalgia_90s', promptLabel: 'Años 90', icon: '📼' },
