@@ -625,6 +625,74 @@
 			]
 		},
 		{
+			"name": "Sync",
+			"item": [
+				{
+					"name": "Start Sync",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"genres\": [\"reggaeton\", \"pop\"],\n  \"country\": \"EC\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/sync/start",
+							"host": ["{{baseUrl}}"],
+							"path": ["sync", "start"]
+						},
+						"description": "Admin only. Triggers full sync pipeline."
+					}
+				},
+				{
+					"name": "Get Sync Progress",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/sync/progress/:syncId",
+							"host": ["{{baseUrl}}"],
+							"path": ["sync", "progress", ":syncId"],
+							"variable": [{ "key": "syncId", "value": "" }]
+						},
+						"description": "Admin only."
+					}
+				},
+				{
+					"name": "Resume Sync",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/sync/resume/:syncId",
+							"host": ["{{baseUrl}}"],
+							"path": ["sync", "resume", ":syncId"],
+							"variable": [{ "key": "syncId", "value": "" }]
+						},
+						"description": "Admin only."
+					}
+				},
+				{
+					"name": "Incremental Sync",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"country\": \"EC\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/sync/incremental/:genre",
+							"host": ["{{baseUrl}}"],
+							"path": ["sync", "incremental", ":genre"],
+							"variable": [{ "key": "genre", "value": "reggaeton" }]
+						},
+						"description": "Admin only. Sync a single genre."
+					}
+				}
+			]
+		},
+		{
 			"name": "Admin",
 			"item": [
 				{
