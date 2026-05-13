@@ -557,7 +557,7 @@
 						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"label\": \"Chill\",\n  \"subCategories\": [\"lofi\", \"ambient\", \"acoustic\"],\n  \"icon\": \"🌙\",\n  \"order\": 1\n}"
+							"raw": "{\n  \"labelKey\": \"vibe_chill\",\n  \"promptLabel\": \"Relajado\",\n  \"subCategories\": [\n    { \"key\": \"vibe_lofi\", \"promptLabel\": \"Lofi\", \"icon\": \"🎵\" }\n  ],\n  \"icon\": \"🌙\",\n  \"order\": 1\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/vibes",
@@ -611,7 +611,7 @@
 						"header": [{ "key": "Content-Type", "value": "application/json" }],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"vibeId\": \"chill\",\n  \"subCategory\": \"lofi\",\n  \"genres\": [\"hip-hop\", \"jazz\"],\n  \"birthYear\": 1995,\n  \"localTime\": \"2026-05-12T22:00:00\",\n  \"dayOfWeek\": \"Monday\"\n}"
+							"raw": "{\n  \"vibeId\": \"<firestore-vibe-id>\",\n  \"subCategoryKey\": \"vibe_lofi\",\n  \"genres\": [\"hip-hop\", \"jazz\"],\n  \"birthYear\": 1995,\n  \"localTime\": \"2026-05-12T22:00:00\",\n  \"dayOfWeek\": \"Monday\"\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/vibe/generate?limit=10",
