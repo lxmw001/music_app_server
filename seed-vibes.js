@@ -1,18 +1,12 @@
 // seed-vibes.js — populates the vibes collection in Firestore
-// Usage: node seed-vibes.js
-require('dotenv').config();
+// Usage:
+//   node seed-vibes.js          → seeds dev (uses .env)
+//   node seed-vibes.js --prod   → seeds prod (uses .env.prod)
+
+const isProd = process.argv.includes('--prod');
+require('dotenv').config({ path: isProd ? '.env.prod' : '.env' });
+
 const admin = require('firebase-admin');
-
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  }),
-});
-
-const db = admin.firestore();
-db.settings({ databaseId: process.env.FIRESTORE_DATABASE_ID || 'music-db' });
 
 const vibes = [
   {
@@ -186,16 +180,23 @@ const vibes = [
   },
 ];
 
-async function seed() {
-  const col = db.collection('vibes');
+async function run() {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+  });
 
-  // Clear existing
+  const db = admin.firestore();
+  db.settings({ databaseId: process.env.FIRESTORE_DATABASE_ID || 'music-db' });
+
+  const col = db.collection('vibes');
   const existing = await col.get();
-  const deletes = existing.docs.map(d => d.ref.delete());
-  await Promise.all(deletes);
+  await Promise.all(existing.docs.map(d => d.ref.delete()));
   console.log(`Deleted ${existing.size} existing vibes`);
 
-  // Insert new
   for (const vibe of vibes) {
     const ref = await col.add(vibe);
     console.log(`Created: ${vibe.labelKey} (${ref.id})`);
@@ -205,4 +206,15 @@ async function seed() {
   process.exit(0);
 }
 
-seed().catch(err => { console.error(err); process.exit(1); });
+console.log(`Target: ${isProd ? 'PRODUCTION' : 'development'} — project: ${process.env.FIREBASE_PROJECT_ID}, db: ${process.env.FIRESTORE_DATABASE_ID || 'music-db'}`);
+
+if (isProd) {
+  const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
+  rl.question('Type "yes" to confirm seeding PRODUCTION: ', answer => {
+    rl.close();
+    if (answer.trim() !== 'yes') { console.log('Aborted.'); process.exit(0); }
+    run().catch(err => { console.error(err); process.exit(1); });
+  });
+} else {
+  run().catch(err => { console.error(err); process.exit(1); });
+}
