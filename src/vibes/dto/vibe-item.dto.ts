@@ -1,5 +1,5 @@
 export class VibeSubCategoryDto {
-  key: string;
+  labelKey: string;
   promptLabel: string;
   icon?: string;
 }
