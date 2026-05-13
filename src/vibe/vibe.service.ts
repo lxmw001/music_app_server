@@ -31,7 +31,20 @@ export class VibeService {
       }
     }
 
-    const suggestions = await this.gemini.generateVibeQueries({ ...dto, limit });
+    // Resolve promptLabels from vibes collection
+    const vibeDoc = await this.firestore.doc(`vibes/${dto.vibeId}`).get();
+    const vibeData = vibeDoc.exists ? vibeDoc.data()! : null;
+    const vibePromptLabel: string = vibeData?.promptLabel ?? dto.vibeId;
+    const subCategoryPromptLabel: string | undefined = dto.subCategoryKey
+      ? (vibeData?.subCategories ?? []).find((s: any) => s.key === dto.subCategoryKey)?.promptLabel ?? dto.subCategoryKey
+      : undefined;
+
+    const suggestions = await this.gemini.generateVibeQueries({
+      ...dto,
+      subCategory: subCategoryPromptLabel,
+      vibeId: vibePromptLabel,
+      limit,
+    });
     if (suggestions.length === 0) return [];
 
     const playlist: SearchSongDto[] = [];
@@ -94,7 +107,7 @@ export class VibeService {
 
     return [
       dto.vibeId,
-      dto.subCategory || '',
+      dto.subCategoryKey || '',
       (dto.genres || []).sort().join('-'),
       dto.birthYear ? String(dto.birthYear) : '',
       timeOfDay,

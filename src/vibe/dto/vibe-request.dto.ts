@@ -6,7 +6,7 @@ export class VibeRequestDto {
 
   @IsOptional()
   @IsString()
-  subCategory?: string;
+  subCategoryKey?: string;
 
   @IsOptional()
   @IsInt()

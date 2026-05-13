@@ -1,7 +1,14 @@
+export class VibeSubCategoryDto {
+  key: string;
+  promptLabel: string;
+  icon?: string;
+}
+
 export class VibeItemDto {
   id: string;
-  label: string;
-  subCategories: string[];
+  labelKey: string;
+  promptLabel: string;
+  subCategories: VibeSubCategoryDto[];
   icon?: string;
   order: number;
 }
