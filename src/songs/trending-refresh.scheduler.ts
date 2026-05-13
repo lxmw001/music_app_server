@@ -14,8 +14,39 @@ export class TrendingRefreshScheduler implements OnModuleInit {
 
   // Run on startup
   async onModuleInit() {
-    this.logger.log('Running initial trending cache refresh on startup');
-    await this.refreshTrendingCache();
+    const countriesSnapshot = await this.firestore.collection('trending_countries').get();
+    if (countriesSnapshot.empty) return;
+
+    const countries = countriesSnapshot.docs.map(doc => doc.id);
+    const now = Date.now();
+    const staleCountries: string[] = [];
+
+    for (const country of countries) {
+      const cached = await this.firestore.doc(`trending_cache_v2/${country}`).get();
+      if (!cached.exists) {
+        staleCountries.push(country);
+        continue;
+      }
+      const lastUpdated = cached.data()?.lastUpdated?.toDate();
+      if (!lastUpdated || now - lastUpdated.getTime() > 60 * 60 * 1000) {
+        staleCountries.push(country);
+      }
+    }
+
+    if (staleCountries.length === 0) {
+      this.logger.log('Trending cache is fresh — skipping startup refresh');
+      return;
+    }
+
+    this.logger.log(`Running startup trending refresh for stale countries: ${staleCountries.join(', ')}`);
+    for (const country of staleCountries) {
+      try {
+        await this.songsService.getTrendingMusic(country, 50, true);
+        this.logger.log(`✓ Refreshed trending cache for ${country}`);
+      } catch (error) {
+        this.logger.error(`✗ Failed to refresh trending for ${country}: ${error.message}`);
+      }
+    }
   }
 
   // Run every hour
