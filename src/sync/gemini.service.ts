@@ -258,6 +258,46 @@ Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
       .trim();
   }
 
+  async generateVibeSearchQueries(params: {
+    vibeId: string;
+    subCategory?: string;
+    birthYear?: number;
+    genres?: string[];
+    localTime?: string;
+    dayOfWeek?: string;
+  }): Promise<string[]> {
+    const { vibeId, subCategory, birthYear, genres, localTime, dayOfWeek } = params;
+
+    const age = birthYear ? new Date().getFullYear() - birthYear : null;
+    const ageDesc = age ? `a ${age}-year-old` : 'a user';
+    const genreDesc = genres?.length ? `who likes ${genres.join(', ')}` : '';
+    const timeDesc = localTime ? (() => {
+      const h = new Date(localTime).getHours();
+      if (h >= 6 && h < 10) return 'morning';
+      if (h >= 10 && h < 18) return 'afternoon';
+      if (h >= 18 && h < 22) return 'evening';
+      return 'late night';
+    })() : '';
+    const contextDesc = [dayOfWeek, timeDesc].filter(Boolean).join(' ');
+    const vibeLabel = subCategory ? `${vibeId} (${subCategory})` : vibeId;
+
+    const prompt = `As a music expert, the user is ${ageDesc} ${genreDesc}. It's ${contextDesc}. They selected the "${vibeLabel}" vibe.${age ? ` Include some nostalgia from around ${birthYear! + 16}-${birthYear! + 26}.` : ''}
+Suggest 10 YouTube search queries to find music mixes, playlists or compilations that fit this vibe. Each query should be specific enough to return mix/playlist results.
+Return ONLY a JSON array of query strings: ["query 1", "query 2", ...]`;
+
+    try {
+      const text = await this.generate(prompt);
+      const parsed: string[] = JSON.parse(this.extractJson(text));
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.filter(q => typeof q === 'string' && q.length > 0);
+      }
+    } catch (error) {
+      this.logger.warn(`generateVibeSearchQueries failed: ${(error as Error).message}`);
+    }
+
+    return [`${vibeLabel} music mix`, `best ${vibeLabel} playlist`, `${vibeLabel} ${timeDesc} mix`.trim()];
+  }
+
   async generateVibeQueries(params: {
     vibeId: string;
     subCategory?: string;

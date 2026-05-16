@@ -1,34 +1,31 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { GeminiService } from '../sync/gemini.service';
-import { LastFmService } from '../sync/lastfm.service';
+import { YouTubeService } from '../sync/youtube.service';
 import { FirestoreService } from '../firestore/firestore.service';
-import { SearchSongDto } from '../songs/dto/search-youtube-response.dto';
+import { SearchMixDto } from '../songs/dto/search-youtube-response.dto';
 import { VibeRequestDto } from './dto/vibe-request.dto';
 
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MIX_KEYWORDS = /\b(mix|playlist|compilation|megamix|nonstop|non-stop|mashup|medley|vol\.|best of|greatest hits|top \d|hits|set)\b/i;
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour in-memory
 
 @Injectable()
 export class VibeService {
   private readonly logger = new Logger(VibeService.name);
+  private readonly memCache = new Map<string, { result: SearchMixDto[]; expiresAt: number }>();
 
   constructor(
     private readonly gemini: GeminiService,
-    private readonly lastfm: LastFmService,
+    private readonly youtube: YouTubeService,
     private readonly firestore: FirestoreService,
   ) {}
 
-  async generate(dto: VibeRequestDto, limit = 10): Promise<SearchSongDto[]> {
-    const cacheKey = this.buildCacheKey(dto, limit);
+  async generate(dto: VibeRequestDto, limit = 20): Promise<SearchMixDto[]> {
+    const cacheKey = this.buildCacheKey(dto);
 
-    const cached = await this.firestore.doc(`vibe_playlists/${cacheKey}`).get();
-    if (cached.exists) {
-      const data = cached.data()!;
-      const isStale = !data.lastUpdated || (Date.now() - data.lastUpdated.toDate().getTime()) > CACHE_TTL_MS;
-      if (!isStale) {
-        this.logger.log(`Returning cached vibe playlist for ${cacheKey}`);
-        const docs = await Promise.all((data.songs ?? []).map((id: string) => this.firestore.doc(`songs/${id}`).get()));
-        return docs.filter(d => d.exists).map(d => this.toDto(d.id, d.data()));
-      }
+    const cached = this.memCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      this.logger.log(`Memory cache hit for vibe ${cacheKey}`);
+      return cached.result;
     }
 
     // Resolve promptLabels from vibes collection
@@ -39,64 +36,47 @@ export class VibeService {
       ? (vibeData?.subCategories ?? []).find((s: any) => s.labelKey === dto.subCategoryKey)?.promptLabel ?? dto.subCategoryKey
       : undefined;
 
-    const suggestions = await this.gemini.generateVibeQueries({
-      ...dto,
-      subCategory: subCategoryPromptLabel,
+    // Generate search queries via Gemini
+    const queries = await this.gemini.generateVibeSearchQueries({
       vibeId: vibePromptLabel,
-      limit,
+      subCategory: subCategoryPromptLabel,
+      birthYear: dto.birthYear,
+      genres: dto.genres,
+      localTime: dto.localTime,
+      dayOfWeek: dto.dayOfWeek,
     });
-    if (suggestions.length === 0) return [];
 
-    const playlist: SearchSongDto[] = [];
-
-    for (const song of suggestions) {
-      try {
-        const existing = await this.firestore.collection('songs')
-          .where('youtubeId', '==', song.youtubeId)
-          .limit(1)
-          .get();
-
-        if (!existing.empty) {
-          playlist.push(this.toDto(existing.docs[0].id, existing.docs[0].data()));
-          continue;
-        }
-
-        const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
-
-        const songData: any = {
-          title: song.title,
-          artistName: song.artistName,
-          youtubeId: song.youtubeId,
-          nameLower: song.title.toLowerCase(),
-          coverImageUrl: metadata?.albumArt || null,
-          durationSeconds: 0,
-          genres: metadata?.tags || [],
-          listeners: metadata?.listeners || 0,
-          tags: metadata?.rawTags || [],
-          album: metadata?.album || null,
-          releaseDate: metadata?.releaseDate || null,
-          mbid: metadata?.mbid || null,
-          searchTokens: this.generateSearchTokens(`${song.title} ${song.artistName}`),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-
-        const docRef = await this.firestore.collection('songs').add(songData);
-        playlist.push(this.toDto(docRef.id, songData));
-      } catch (err) {
-        this.logger.warn(`Failed to process vibe song ${song.title}: ${err.message}`);
-      }
+    if (queries.length === 0) {
+      this.logger.warn(`No queries generated for vibe ${cacheKey}`);
+      return [];
     }
 
-    await this.firestore.doc(`vibe_playlists/${cacheKey}`).set({
-      songs: playlist.map(s => s.id).filter(Boolean),
-      lastUpdated: new Date(),
-    });
+    // Pick one query at random
+    const query = queries[Math.floor(Math.random() * queries.length)];
+    this.logger.log(`Vibe query selected: "${query}"`);
 
-    return playlist;
+    // YouTube search
+    const videos = await this.youtube.searchVideos(query, 30);
+
+    // Filter mixes only
+    const mixes: SearchMixDto[] = videos
+      .filter(v => MIX_KEYWORDS.test(v.title) || (v.durationSeconds ?? 0) > 20 * 60)
+      .slice(0, limit)
+      .map((v, i) => ({
+        title: v.title,
+        youtubeId: v.videoId,
+        thumbnailUrl: v.thumbnailUrl,
+        rank: i + 1,
+        genres: dto.genres || [],
+        streamUrl: null,
+        streamUrlExpiresAt: null,
+      }));
+
+    this.memCache.set(cacheKey, { result: mixes, expiresAt: Date.now() + CACHE_TTL_MS });
+    return mixes;
   }
 
-  private buildCacheKey(dto: VibeRequestDto, limit: number): string {
+  private buildCacheKey(dto: VibeRequestDto): string {
     const timeOfDay = dto.localTime ? (() => {
       const h = new Date(dto.localTime).getHours();
       if (h >= 6 && h < 10) return 'morning';
@@ -112,47 +92,6 @@ export class VibeService {
       dto.birthYear ? String(dto.birthYear) : '',
       timeOfDay,
       dto.dayOfWeek || '',
-      String(limit),
     ].join('_').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
-  }
-
-  private toDto(id: string, data: any): SearchSongDto {
-    return {
-      id,
-      title: data.title,
-      artistName: data.artistName,
-      youtubeId: data.youtubeId,
-      thumbnailUrl: data.coverImageUrl,
-      duration: data.durationSeconds || 0,
-      rank: 0,
-      artistId: data.artistId,
-      albumId: data.albumId,
-      album: data.album,
-      genres: data.genres || [],
-      tags: data.tags || [],
-      listeners: data.listeners,
-      mbid: data.mbid,
-      ...this.resolveStreamUrl(data),
-    };
-  }
-
-  private resolveStreamUrl(data: any): { streamUrl: string | null; streamUrlExpiresAt: string | null } {
-    if (!data.streamUrl || !data.streamUrlExpiresAt) return { streamUrl: null, streamUrlExpiresAt: null };
-    const expiresAt = data.streamUrlExpiresAt?.toDate?.() ?? new Date(data.streamUrlExpiresAt);
-    if (expiresAt <= new Date()) return { streamUrl: null, streamUrlExpiresAt: null };
-    return { streamUrl: data.streamUrl, streamUrlExpiresAt: expiresAt.toISOString() };
-  }
-
-  private generateSearchTokens(text: string): string[] {
-    const normalized = text.toLowerCase();
-    const tokens = new Set<string>();
-    const words = normalized.split(/[\s\-_.,!?()]+/).filter(w => w.length > 0);
-    for (const word of words) {
-      if (word.length >= 3) {
-        tokens.add(word);
-        for (let i = 3; i <= word.length; i++) tokens.add(word.substring(0, i));
-      }
-    }
-    return Array.from(tokens);
   }
 }
