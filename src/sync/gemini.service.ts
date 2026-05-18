@@ -269,8 +269,8 @@ Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
     const { vibeId, subCategory, birthYear, genres, localTime, dayOfWeek } = params;
 
     const age = birthYear ? new Date().getFullYear() - birthYear : null;
-    const ageDesc = age ? `a ${age}-year-old` : 'a user';
-    const genreDesc = genres?.length ? `who likes ${genres.join(', ')}` : '';
+    const ageDesc = age ? `una persona de ${age} años` : 'un usuario';
+    const genreDesc = genres?.length ? `que le gusta ${genres.join(', ')}` : '';
     const timeDesc = localTime ? (() => {
       const h = new Date(localTime).getHours();
       if (h >= 6 && h < 10) return 'morning';
@@ -281,9 +281,9 @@ Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
     const contextDesc = [dayOfWeek, timeDesc].filter(Boolean).join(' ');
     const vibeLabel = subCategory ? `${vibeId} (${subCategory})` : vibeId;
 
-    const prompt = `As a music expert, the user is ${ageDesc} ${genreDesc}. It's ${contextDesc}. They selected the "${vibeLabel}" vibe.${age ? ` Include some nostalgia from around ${birthYear! + 16}-${birthYear! + 26}.` : ''}
-Suggest 10 YouTube search queries to find music mixes, playlists or compilations that fit this vibe. Each query should be specific enough to return mix/playlist results.
-Return ONLY a JSON array of query strings: ["query 1", "query 2", ...]`;
+    const prompt = `Eres un experto en música. El usuario es ${ageDesc} ${genreDesc}. Es ${contextDesc}. Seleccionó el vibe "${vibeLabel}".${age ? ` Incluye algo de nostalgia de alrededor de ${birthYear! + 16}-${birthYear! + 26}.` : ''}
+Sugiere 10 búsquedas de YouTube para encontrar mixes, playlists o compilaciones que encajen con este vibe. Cada búsqueda debe ser específica para obtener resultados de mixes o playlists.
+Devuelve SOLO un array JSON de strings: ["búsqueda 1", "búsqueda 2", ...]`;
 
     try {
       const text = await this.generate(prompt);
@@ -310,8 +310,8 @@ Return ONLY a JSON array of query strings: ["query 1", "query 2", ...]`;
     const { vibeId, subCategory, birthYear, genres, localTime, dayOfWeek, limit = 10 } = params;
 
     const age = birthYear ? new Date().getFullYear() - birthYear : null;
-    const ageDesc = age ? `a ${age}-year-old` : 'a user';
-    const genreDesc = genres?.length ? `who likes ${genres.join(', ')}` : '';
+    const ageDesc = age ? `una persona de ${age} años` : 'un usuario';
+    const genreDesc = genres?.length ? `que le gusta ${genres.join(', ')}` : '';
     const timeDesc = localTime ? (() => {
       const h = new Date(localTime).getHours();
       if (h >= 6 && h < 10) return 'morning';
