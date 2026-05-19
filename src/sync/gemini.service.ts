@@ -269,33 +269,54 @@ Input: ${JSON.stringify(rawResults.slice(0, 50))}`;
     const { vibeId, subCategory, birthYear, genres, localTime, dayOfWeek } = params;
 
     const age = birthYear ? new Date().getFullYear() - birthYear : null;
-    const ageDesc = age ? `una persona de ${age} años` : 'un usuario';
-    const genreDesc = genres?.length ? `que le gusta ${genres.join(', ')}` : '';
-    const timeDesc = localTime ? (() => {
-      const h = new Date(localTime).getHours();
-      if (h >= 6 && h < 10) return 'morning';
-      if (h >= 10 && h < 18) return 'afternoon';
-      if (h >= 18 && h < 22) return 'evening';
-      return 'late night';
-    })() : '';
-    const contextDesc = [dayOfWeek, timeDesc].filter(Boolean).join(' ');
-    const vibeLabel = subCategory ? `${vibeId} (${subCategory})` : vibeId;
+    const vibeLabel = subCategory ? `${vibeId} / ${subCategory}` : vibeId;
+    const currentTime = localTime
+      ? new Date(localTime).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-    const prompt = `Eres un experto en música. El usuario es ${ageDesc} ${genreDesc}. Es ${contextDesc}. Seleccionó el vibe "${vibeLabel}".${age ? ` Incluye algo de nostalgia de alrededor de ${birthYear! + 16}-${birthYear! + 26}.` : ''}
-Sugiere 10 búsquedas de YouTube para encontrar mixes, playlists o compilaciones que encajen con este vibe. Cada búsqueda debe ser específica para obtener resultados de mixes o playlists.
-Devuelve SOLO un array JSON de strings: ["búsqueda 1", "búsqueda 2", ...]`;
+    const prompt = `Actúa como un selector musical y DJ profesional con amplio conocimiento del mercado de entretenimiento en Ecuador. Tu objetivo es diseñar una estrategia de búsqueda y una playlist perfecta basándote estrictamente en las variables dinámicas proporcionadas por el sistema.
+
+Variables del Sistema:
+- Vibe / Subcategoría actual: ${vibeLabel}
+- Edad del usuario: ${age ?? 'desconocida'} años
+- Región de Ecuador: Sierra
+- Hora actual del sistema: ${currentTime}
+
+Instrucciones de Razonamiento Lógico (Aplica en este orden estricto):
+
+1. FILTRO DE CONTEXTO TEMPORAL (La Hora):
+Analiza la hora. Clasifica el momento en uno de estos estados:
+- Mañana/Tarde (06:00 - 17:00): Ritmos enfocados en productividad, energía limpia, acompañamiento o activación moderada.
+- Tarde/Noche (17:00 - 20:30): Transición, relajación posterior al trabajo, o recepción/cóctel si el vibe es de carácter social.
+- Noche/Madrugada (20:30 - 05:00): Clímax de fiesta, desconexión total o relajación profunda para dormir, dependiendo estrictamente de la naturaleza del vibe.
+
+2. FILTRO DE IDENTIDAD DEL VIBE Y DEMOGRAFÍA (La Edad):
+Analiza el vibe. Determina si es un entorno COMPARTIDO/SOCIAL (ej: Fiestas, Eventos, Asados) o INDIVIDUAL (ej: Ejercicio, Concentración, Relax).
+- Si es SOCIAL: Modera la influencia de la edad durante las primeras horas del evento para priorizar música multigeneracional. Activa el factor de edad al 100% en horarios avanzados de fiesta.
+- Si es INDIVIDUAL: Prioriza al 100% los gustos generacionales. ${age ? `Calcula la "Época Dorada Musical" del usuario (cuando tenía entre 15 y 24 años, es decir ${age - 24}-${age - 15}) e inyecta éxitos nostálgicos de ese rango.` : ''}
+
+3. FILTRO DE GEOLOCALIZACIÓN (La Región):
+Región: Sierra (Ecuador). Adapta los matices hacia sonidos más andinos/orquestados cuando el vibe lo permita.
+
+Entregables requeridos (responde SOLO con JSON válido, sin texto adicional):
+{
+  "searches": ["término 1", "término 2", ..., "término 10"]
+}
+
+Los 10 términos deben ser hiper-específicos para YouTube, optimizados para encontrar mixes largos o compilaciones.`;
 
     try {
       const text = await this.generate(prompt);
-      const parsed: string[] = JSON.parse(this.extractJson(text));
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.filter(q => typeof q === 'string' && q.length > 0);
+      const parsed = JSON.parse(this.extractJson(text));
+      const searches: string[] = parsed.searches ?? parsed;
+      if (Array.isArray(searches) && searches.length > 0) {
+        return searches.filter(q => typeof q === 'string' && q.length > 0);
       }
     } catch (error) {
       this.logger.warn(`generateVibeSearchQueries failed: ${(error as Error).message}`);
     }
 
-    return [`${vibeLabel} music mix`, `best ${vibeLabel} playlist`, `${vibeLabel} ${timeDesc} mix`.trim()];
+    return [`${vibeLabel} mix`, `${vibeLabel} playlist Ecuador`, `${vibeLabel} compilación`];
   }
 
   async generateVibeQueries(params: {
