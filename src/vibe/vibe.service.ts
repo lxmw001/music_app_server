@@ -19,6 +19,8 @@ export class VibeService {
     private readonly firestore: FirestoreService,
   ) {}
 
+  private revalidating = new Set<string>();
+
   async generate(dto: VibeRequestDto, limit = 20): Promise<SearchSongDto[]> {
     const cacheKey = this.buildCacheKey(dto);
 
@@ -28,6 +30,45 @@ export class VibeService {
       return cached.result;
     }
 
+    // If expired or missing, find nearest existing cache entry as fallback
+    const fallback = this.getNearestCache(dto);
+
+    if (fallback && !this.revalidating.has(cacheKey)) {
+      // Return stale/nearest data immediately, refresh in background
+      this.logger.log(`Returning nearest cache for ${cacheKey}, refreshing in background`);
+      this.revalidating.add(cacheKey);
+      this.fetchAndCache(dto, limit, cacheKey).finally(() => this.revalidating.delete(cacheKey));
+      return fallback;
+    }
+
+    if (this.revalidating.has(cacheKey) && fallback) {
+      // Already refreshing, return fallback
+      return fallback;
+    }
+
+    // No fallback at all — must wait
+    return this.fetchAndCache(dto, limit, cacheKey);
+  }
+
+  private getNearestCache(dto: VibeRequestDto): SearchSongDto[] | null {
+    // Find any cache entry for same vibeId + subCategoryKey regardless of time bucket
+    const prefix = [
+      dto.vibeId,
+      dto.subCategoryKey || '',
+      (dto.genres || []).sort().join('-'),
+      dto.birthYear ? String(dto.birthYear) : '',
+    ].join('_').replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+
+    let best: { result: SearchSongDto[]; expiresAt: number } | null = null;
+    for (const [key, entry] of this.memCache.entries()) {
+      if (key.startsWith(prefix) && (!best || entry.expiresAt > best.expiresAt)) {
+        best = entry;
+      }
+    }
+    return best?.result ?? null;
+  }
+
+  private async fetchAndCache(dto: VibeRequestDto, limit: number, cacheKey: string): Promise<SearchSongDto[]> {
     const vibeDoc = await this.firestore.doc(`vibes/${dto.vibeId}`).get();
     const vibeData = vibeDoc.exists ? vibeDoc.data()! : null;
     const vibePromptLabel: string = vibeData?.promptLabel ?? dto.vibeId;
