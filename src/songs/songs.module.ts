@@ -9,10 +9,11 @@ import { SongDeduplicationService } from './song-deduplication.service';
 import { MetadataBackfillScheduler } from './metadata-backfill.scheduler';
 import { TrendingRefreshScheduler } from './trending-refresh.scheduler';
 import { CountrySearchScheduler } from './country-search.scheduler';
+import { CountrySearchController } from './country-search.controller';
 
 @Module({
   imports: [FirestoreModule, AuthModule, SyncModule],
-  controllers: [SongsController],
+  controllers: [SongsController, CountrySearchController],
   providers: [SongsService, SearchRefreshScheduler, SongDeduplicationService, MetadataBackfillScheduler, TrendingRefreshScheduler, CountrySearchScheduler],
   exports: [SongsService, SongDeduplicationService],
 })
