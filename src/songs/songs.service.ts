@@ -635,7 +635,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     return bestMatch;
   }
 
-  private normalizeSearchQuery(query: string): string {
+  normalizeSearchQuery(query: string): string {
     return query
       .toLowerCase()
       .trim()
