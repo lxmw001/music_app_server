@@ -1049,10 +1049,25 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       })) };
     }
 
+    // Deduplicate classified songs — prefer playable, then shorter duration
+    const dedupInput = (classified.songs || [])
+      .filter(s => s.videoId)
+      .map(s => {
+        const original = relatedVideos.find(r => r.videoId === s.videoId);
+        return {
+          videoId: s.videoId,
+          title: s.title,
+          artistName: s.artistName,
+          durationSeconds: original?.durationSeconds,
+          playable: original?.playable,
+        };
+      });
+    const deduped = this.dedup.deduplicateByCode(dedupInput);
+    const dedupedSongs = deduped.unique;
+
     // Process songs
-    for (const song of classified.songs || []) {
+    for (const song of dedupedSongs) {
       if (playlist.length >= limit) break;
-      if (!song.videoId) continue;
 
       const original = relatedVideos.find(r => r.videoId === song.videoId);
       
@@ -1068,8 +1083,9 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
         playlist.push(this.mapToSongResponse(doc.id, doc.data(), playlist.length + 1));
       } else if (existingSnapshot.empty) {
         // Create new song
+        const classifiedSong = (classified.songs || []).find(s => s.videoId === song.videoId);
         const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
-        const geminiGenres = song.genres || [];
+        const geminiGenres = classifiedSong?.genres || [];
         const lastfmGenres = metadata?.tags || [];
         const allGenres = [...new Set([...geminiGenres, ...lastfmGenres])].slice(0, 5);
 
