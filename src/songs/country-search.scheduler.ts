@@ -55,9 +55,11 @@ export class CountrySearchScheduler {
 
     this.logger.log(`Processing ${country} — already collected ${searchesCount} queries`);
 
-    const prompt = `List 50 music search queries popular in ${country} for YouTube and Spotify.
-We already collected ${searchesCount} different queries in previous sessions.
-Try to give NEW queries not given before. Today is ${new Date().toISOString().split('T')[0]}.
+    const lang = this.countryLanguage(country);
+    const prompt = `List 50 real music search queries that people in ${country} actually type into YouTube and Spotify.
+All queries must be in ${lang}. Only include English queries if they are commonly used by ${country} listeners (e.g. international artists).
+We already collected ${searchesCount} different queries in previous sessions. Give NEW ones not given before.
+Today is ${new Date().toISOString().split('T')[0]}.
 Return ONLY a JSON array of strings, no explanation.`;
 
     const text = await this.gemini.generate(prompt);
@@ -94,6 +96,32 @@ Return ONLY a JSON array of strings, no explanation.`;
     }, { merge: true });
 
     this.logger.log(`✓ ${country}: added ${newCount} new searches (total: ${searchesCount + newCount})`);
+  }
+
+  private countryLanguage(country: string): string {
+    const map: Record<string, string> = {
+      EC: 'Spanish',
+      MX: 'Spanish',
+      ES: 'Spanish',
+      AR: 'Spanish',
+      CO: 'Spanish',
+      CL: 'Spanish',
+      PE: 'Spanish',
+      VE: 'Spanish',
+      US: 'English',
+      GB: 'English',
+      BR: 'Portuguese',
+      PT: 'Portuguese',
+      FR: 'French',
+      DE: 'German',
+      IT: 'Italian',
+      JP: 'Japanese',
+      KR: 'Korean',
+      CN: 'Chinese',
+      RU: 'Russian',
+      IN: 'Hindi and English',
+    };
+    return map[country.toUpperCase()] || 'the local language';
   }
 
   private extractJson(text: string): string {
