@@ -29,8 +29,8 @@ export class SongsController {
   }
 
   @Get('search-youtube')
-  searchYouTube(@Query('query') query: string): Promise<SearchYouTubeResponseDto> {
-    return this.songsService.searchYouTube({ query });
+  searchYouTube(@Query('query') query: string, @Query('force') force?: string): Promise<SearchYouTubeResponseDto> {
+    return this.songsService.searchYouTube({ query, force: force === 'true' });
   }
 
   @Get(':id')

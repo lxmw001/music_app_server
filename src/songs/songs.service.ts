@@ -221,58 +221,62 @@ export class SongsService implements OnModuleInit {
 
   async searchYouTube(dto: SearchYouTubeDto): Promise<SearchYouTubeResponseDto> {
     const normalizedQuery = this.normalizeSearchQuery(dto.query);
+    const force = dto.force === true;
 
-    // 1. Check in-memory cache first (5 min TTL)
-    const memCacheKey = `yt_search:${normalizedQuery}`;
-    const memCached = await this.cache.get<SearchYouTubeResponseDto>(memCacheKey);
-    if (memCached) {
-      this.logger.log(`Memory cache hit for "${dto.query}"`);
-      return memCached;
-    }
+    if (!force) {
+      // 1. Check in-memory cache first (5 min TTL)
+      const memCacheKey = `yt_search:${normalizedQuery}`;
+      const memCached = await this.cache.get<SearchYouTubeResponseDto>(memCacheKey);
+      if (memCached) {
+        this.logger.log(`Memory cache hit for "${dto.query}"`);
+        return memCached;
+      }
 
-    // 2. Check Firestore exact match
-    let cached = await this.firestore.doc(`youtube_searches/${normalizedQuery}`).get();
+      // 2. Check Firestore exact match
+      let cached = await this.firestore.doc(`youtube_searches/${normalizedQuery}`).get();
 
-    // 3. If no exact match, try fuzzy search
-    if (!cached.exists) {
-      const fuzzyMatch = await this.findSimilarSearch(dto.query);
-      if (fuzzyMatch) {
-        cached = fuzzyMatch;
-        this.firestore.doc(`youtube_searches/${fuzzyMatch.id}`).update({
-          variations: admin.firestore.FieldValue.arrayUnion(dto.query.toLowerCase()),
+      // 3. If no exact match, try fuzzy search
+      if (!cached.exists) {
+        const fuzzyMatch = await this.findSimilarSearch(dto.query);
+        if (fuzzyMatch) {
+          cached = fuzzyMatch;
+          this.firestore.doc(`youtube_searches/${fuzzyMatch.id}`).update({
+            variations: admin.firestore.FieldValue.arrayUnion(dto.query.toLowerCase()),
+          }).catch(() => {});
+        }
+      }
+
+      if (cached.exists) {
+        const data = cached.data();
+        const lastUpdated = data.lastUpdated?.toDate();
+        const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 7 * 24 * 60 * 60 * 1000;
+
+        this.firestore.doc(`youtube_searches/${cached.id}`).update({
+          searchCount: (data.searchCount || 0) + 1,
+          lastSearched: new Date(),
         }).catch(() => {});
+
+        // Update in-memory cache
+        this.updateSearchesCache(data.query || dto.query, (data.searchCount || 0) + 1, new Date());
+
+        if (!isStale) {
+          const result = await this.enrichSearchResults(data);
+          await this.cache.set(memCacheKey, result, 300_000);
+          return result;
+        }
+
+        // Stale-while-revalidate
+        this.logger.log(`Stale cache for "${dto.query}" — returning stale, refreshing in background`);
+        const staleResult = await this.enrichSearchResults(data);
+        await this.cache.set(memCacheKey, staleResult, 300_000);
+        this.refreshSearchCache(dto, normalizedQuery).catch(err =>
+          this.logger.error(`Background refresh failed for "${dto.query}": ${err.message}`)
+        );
+        return staleResult;
       }
     }
 
-    if (cached.exists) {
-      const data = cached.data();
-      const lastUpdated = data.lastUpdated?.toDate();
-      const isStale = !lastUpdated || (Date.now() - lastUpdated.getTime()) > 7 * 24 * 60 * 60 * 1000;
-
-      this.firestore.doc(`youtube_searches/${cached.id}`).update({
-        searchCount: (data.searchCount || 0) + 1,
-        lastSearched: new Date(),
-      }).catch(() => {});
-
-      // Update in-memory cache
-      this.updateSearchesCache(data.query || dto.query, (data.searchCount || 0) + 1, new Date());
-
-      if (!isStale) {
-        const result = await this.enrichSearchResults(data);
-        await this.cache.set(memCacheKey, result, 300_000);
-        return result;
-      }
-
-      // Stale-while-revalidate
-      this.logger.log(`Stale cache for "${dto.query}" — returning stale, refreshing in background`);
-      const staleResult = await this.enrichSearchResults(data);
-      await this.cache.set(memCacheKey, staleResult, 300_000);
-      this.refreshSearchCache(dto, normalizedQuery).catch(err =>
-        this.logger.error(`Background refresh failed for "${dto.query}": ${err.message}`)
-      );
-      return staleResult;
-    }
-
+    this.logger.log(`Force refresh for "${dto.query}"`);
     return this.refreshSearchCache(dto, normalizedQuery);
   }
 
