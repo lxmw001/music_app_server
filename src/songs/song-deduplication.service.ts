@@ -185,7 +185,7 @@ export class SongDeduplicationService {
    * Returns the deduplicated list and a map of removed videoId → kept videoId.
    */
   deduplicateByCode(
-    songs: Array<{ videoId: string; title: string; artistName: string; durationSeconds?: number }>,
+    songs: Array<{ videoId: string; title: string; artistName: string; durationSeconds?: number; playable?: boolean }>,
   ): {
     unique: typeof songs;
     duplicateMap: Map<string, string>; // removed videoId → kept videoId
@@ -197,12 +197,14 @@ export class SongDeduplicationService {
       const cleanTitle = this.cleanTitle(song.title).toLowerCase();
       const normArtist = this.normalizeArtist(song.artistName);
       const duration = song.durationSeconds || 0;
+      const playable = song.playable !== false;
 
       let foundDuplicate = false;
       for (const existing of kept) {
         const existingClean = this.cleanTitle(existing.title).toLowerCase();
         const existingArtist = this.normalizeArtist(existing.artistName);
         const existingDuration = existing.durationSeconds || 0;
+        const existingPlayable = existing.playable !== false;
 
         // Skip if sequel suffix mismatch
         if (this.hasSequelSuffix(cleanTitle) !== this.hasSequelSuffix(existingClean)) continue;
@@ -215,9 +217,14 @@ export class SongDeduplicationService {
 
         // Check title similarity
         if (this.similarity(cleanTitle, existingClean) >= 0.85) {
-          // It's a duplicate — keep the shorter duration version
-          if (duration > 0 && existingDuration > 0 && duration < existingDuration) {
-            // Current song is shorter — replace existing with current
+          // It's a duplicate — prefer playable, then shorter duration
+          if (playable && !existingPlayable) {
+            duplicateMap.set(existing.videoId, song.videoId);
+            const idx = kept.indexOf(existing);
+            kept[idx] = song;
+          } else if (!playable && existingPlayable) {
+            duplicateMap.set(song.videoId, existing.videoId);
+          } else if (duration > 0 && existingDuration > 0 && duration < existingDuration) {
             duplicateMap.set(existing.videoId, song.videoId);
             const idx = kept.indexOf(existing);
             kept[idx] = song;

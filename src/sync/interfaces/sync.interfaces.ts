@@ -10,6 +10,7 @@ export interface YouTubeSearchResult {
   channelTitle: string;
   thumbnailUrl?: string;
   durationSeconds?: number;
+  playable?: boolean;
 }
 
 export interface RawYouTubeResult extends YouTubeSearchResult {

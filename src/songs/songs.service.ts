@@ -469,6 +469,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
             title: s.title,
             artistName: s.artistName,
             durationSeconds: results.find(r => r.videoId === s.videoId)?.durationSeconds,
+            playable: results.find(r => r.videoId === s.videoId)?.playable,
           }));
           const { unique: dedupedUnknown, duplicateMap } = this.dedup.deduplicateByCode(dedupInput);
 

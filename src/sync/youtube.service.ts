@@ -115,12 +115,15 @@ export class YouTubeService {
       })
       .map((item: any) => {
         const details = videoDetails[item.id.videoId];
+        const status = details?.status;
+        const playable = status ? (status.embeddable !== false && status.privacyStatus === 'public') : true;
         return {
           videoId: item.id.videoId as string,
           title: item.snippet.title as string,
           channelTitle: item.snippet.channelTitle as string,
           thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
           durationSeconds: details ? this.parseDuration(details.contentDetails?.duration ?? '') : undefined,
+          playable,
         };
       });
   }
@@ -186,13 +189,18 @@ export class YouTubeService {
         if (!status) return true;
         return status.embeddable !== false && status.privacyStatus === 'public';
       })
-      .map((item: any) => ({
-      videoId: item.id as string,
-      title: item.snippet.title as string,
-      channelTitle: item.snippet.channelTitle as string,
-      thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-      durationSeconds: this.parseDuration(item.contentDetails?.duration ?? ''),
-    }));
+      .map((item: any) => {
+        const status = item.status;
+        const playable = status ? (status.embeddable !== false && status.privacyStatus === 'public') : true;
+        return {
+          videoId: item.id as string,
+          title: item.snippet.title as string,
+          channelTitle: item.snippet.channelTitle as string,
+          thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+          durationSeconds: this.parseDuration(item.contentDetails?.duration ?? ''),
+          playable,
+        };
+      });
   }
 
   async getRelatedVideos(artistName: string, maxResults: number = 30): Promise<YouTubeSearchResult[]> {
