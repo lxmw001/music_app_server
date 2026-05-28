@@ -363,16 +363,17 @@ export class SongsService implements OnModuleInit {
     let rankCounter = 1;
 
     if (unknownForGemini.length > 0) {
-      const prompt = `Classify YouTube music results into: songs, mixes, videos, artists.
+      const prompt = `Classify these YouTube music results. EVERY song MUST have genres — guess from the title, artist, and channel name.
+
 Rules:
-- Songs: Single music tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist name. Assign 1-3 music genres.
+- Songs: Single music tracks. Clean title (remove: Official Video, Lyrics, Audio, VEVO). Extract artist name. **Every song must have at least 2 genres** (e.g., pop, reggaeton, rock, latin, hip-hop, electronic, salsa, bachata, vallenato, merengue, trap, R&B, indie, k-pop, classical, jazz, blues, country, folk, metal, punk, soul, funk, disco, reggae, ska, gospel, house, techno, dubstep, dancehall, afrobeat, corridos, norteño, banda, cumbia, sertanejo, pagode, samba, bossa nova, tango, flamenco).
 - Mixes: Playlists, compilations, DJ sets, "Best of" collections, "Top Hits" collections.
 - Videos: Interviews, behind-the-scenes, live performances (not music videos).
 - Artists: Artist channels or profiles.
 
-Return JSON only:
+Return JSON only — genres is REQUIRED for every song:
 {
-  "songs": [{"title":"Clean Title","artistName":"Artist","videoId":"abc","genres":["genre1"]}],
+  "songs": [{"title":"Clean Title","artistName":"Artist","videoId":"abc","genres":["genre1","genre2"]}],
   "mixes": [{"title":"Mix Title","videoId":"xyz"}],
   "videos": [{"title":"Video Title","videoId":"def"}],
   "artists": [{"name":"Artist Name"}]
@@ -432,6 +433,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
             this.firestore.doc(`songs/${known.id}`).update({
               title: song.title,
               artistName: song.artistName,
+              genres: song.genres || [],
               updatedAt: new Date(),
             }).catch(err => this.logger.warn(`Failed to update song ${known.id}: ${err.message}`));
           }
