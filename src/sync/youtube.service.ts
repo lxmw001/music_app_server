@@ -106,13 +106,6 @@ export class YouTubeService {
     }
 
     return items
-      .filter(item => {
-        const details = videoDetails[item.id.videoId];
-        if (!details) return true;
-        const status = details.status;
-        if (!status) return true;
-        return status.embeddable !== false && status.privacyStatus === 'public';
-      })
       .map((item: any) => {
         const details = videoDetails[item.id.videoId];
         const status = details?.status;
@@ -184,11 +177,6 @@ export class YouTubeService {
     const items: any[] = response.data.items ?? [];
 
     return items
-      .filter(item => {
-        const status = item.status;
-        if (!status) return true;
-        return status.embeddable !== false && status.privacyStatus === 'public';
-      })
       .map((item: any) => {
         const status = item.status;
         const playable = status ? (status.embeddable !== false && status.privacyStatus === 'public') : true;

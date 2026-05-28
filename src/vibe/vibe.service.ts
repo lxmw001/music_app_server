@@ -93,7 +93,7 @@ export class VibeService {
     const videos = await this.youtube.searchVideos(query, 30);
 
     const result: SearchSongDto[] = videos
-      .filter(v => MIX_KEYWORDS.test(v.title) || (v.durationSeconds ?? 0) > 20 * 60)
+      .filter(v => v.playable !== false && (MIX_KEYWORDS.test(v.title) || (v.durationSeconds ?? 0) > 20 * 60))
       .slice(0, limit)
       .map((v, i) => ({
         title: v.title,
