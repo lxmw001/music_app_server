@@ -11,7 +11,7 @@ import {
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
   private readonly genAI: GoogleGenAI | null;
-  private readonly modelName = 'gemini-3.1-flash-lite-preview';
+  private readonly modelName = 'gemini-3.1-flash-lite';
 
   constructor() {
     const apiKey = process.env.GEMINI_API_KEY;

@@ -74,7 +74,7 @@ All data is stored in **Firebase Firestore**. No SQL database is used.
 | Database | Firebase Firestore |
 | Auth | Firebase Authentication |
 | Storage | Firebase Cloud Storage |
-| AI | Google Gemini AI (`gemini-1.5-flash`) |
+| AI | Google Gemini AI (`gemini-3.1-flash-lite`) |
 | Video | YouTube Data API v3 |
 | Music Metadata | Last.fm API |
 | Cache | `@nestjs/cache-manager` (in-memory) |
