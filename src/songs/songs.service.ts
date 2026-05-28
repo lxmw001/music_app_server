@@ -277,10 +277,10 @@ export class SongsService implements OnModuleInit {
     }
 
     this.logger.log(`Force refresh for "${dto.query}"`);
-    return this.refreshSearchCache(dto, normalizedQuery);
+    return this.refreshSearchCache(dto, normalizedQuery, true);
   }
 
-  private async refreshSearchCache(dto: SearchYouTubeDto, normalizedQuery: string): Promise<SearchYouTubeResponseDto> {
+  private async refreshSearchCache(dto: SearchYouTubeDto, normalizedQuery: string, force: boolean = false): Promise<SearchYouTubeResponseDto> {
     // --- Natural language intent parsing ---
     let effectiveQuery = dto.query;
     let intentFilter: { genre?: string; mood?: string; tags?: string[] } | null = null;
@@ -333,9 +333,9 @@ export class SongsService implements OnModuleInit {
     }
 
     // Separate results into known and unknown
-    const unknownForGemini = results.filter(
-      r => !knownSongsMap.has(r.videoId) && !knownItemsMap.has(r.videoId)
-    );
+    const unknownForGemini = force
+      ? results
+      : results.filter(r => !knownSongsMap.has(r.videoId) && !knownItemsMap.has(r.videoId));
 
     this.logger.log(
       `YouTube: ${results.length} results — ${knownSongsMap.size} known songs, ` +
@@ -422,12 +422,19 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
         `Gemini classified ${geminiSongs.length} songs — ${knownClassifiedSongs.length} already in DB, ${unknownClassifiedSongs.length} new`
       );
 
-      // Add known songs to songRefs immediately (no Last.fm needed)
+      // Add known songs to songRefs (update DB with cleaned names when force)
       for (const song of knownClassifiedSongs) {
         const known = knownSongsMap.get(song.videoId);
         if (known && !seenDbIds.has(known.id)) {
           seenDbIds.add(known.id);
-          songRefs.push({ songId: known.id, rank: rankCounter++, videoId: song.videoId, title: known.title, artistName: known.artistName });
+          songRefs.push({ songId: known.id, rank: rankCounter++, videoId: song.videoId, title: song.title, artistName: song.artistName });
+          if (force) {
+            this.firestore.doc(`songs/${known.id}`).update({
+              title: song.title,
+              artistName: song.artistName,
+              updatedAt: new Date(),
+            }).catch(err => this.logger.warn(`Failed to update song ${known.id}: ${err.message}`));
+          }
         }
       }
 
