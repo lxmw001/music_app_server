@@ -55,9 +55,7 @@ export class GeminiService {
       })
     );
     
-    const responseText = result.text ?? '';
-    this.logger.log(`Gemini response (${responseText.length} chars): ${responseText.slice(0, 500)}`);
-    return responseText;
+    return result.text ?? '';
   }
 
   /**
