@@ -89,29 +89,40 @@ export class YouTubeService {
 
     const videoIds = items.map((item: any) => item.id.videoId).join(',');
 
-    let durationsMap: Record<string, number> = {};
+    let videoDetails: Record<string, any> = {};
     try {
       const videosResponse = await axios.get(YOUTUBE_VIDEOS_URL, {
         params: {
           key: apiKey,
           id: videoIds,
-          part: 'contentDetails',
+          part: 'contentDetails,status',
         },
       });
       for (const v of videosResponse.data.items ?? []) {
-        durationsMap[v.id] = this.parseDuration(v.contentDetails?.duration ?? '');
+        videoDetails[v.id] = v;
       }
     } catch {
-      // Duration fetch is best-effort
+      // Details fetch is best-effort
     }
 
-    return items.map((item: any) => ({
-      videoId: item.id.videoId as string,
-      title: item.snippet.title as string,
-      channelTitle: item.snippet.channelTitle as string,
-      thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-      durationSeconds: durationsMap[item.id.videoId],
-    }));
+    return items
+      .filter(item => {
+        const details = videoDetails[item.id.videoId];
+        if (!details) return true;
+        const status = details.status;
+        if (!status) return true;
+        return status.embeddable !== false && status.privacyStatus === 'public';
+      })
+      .map((item: any) => {
+        const details = videoDetails[item.id.videoId];
+        return {
+          videoId: item.id.videoId as string,
+          title: item.snippet.title as string,
+          channelTitle: item.snippet.channelTitle as string,
+          thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+          durationSeconds: details ? this.parseDuration(details.contentDetails?.duration ?? '') : undefined,
+        };
+      });
   }
 
   private isQuotaError(error: any): boolean {
@@ -159,7 +170,7 @@ export class YouTubeService {
     const response = await axios.get(YOUTUBE_VIDEOS_URL, {
       params: {
         key: apiKey,
-        part: 'snippet,contentDetails',
+        part: 'snippet,contentDetails,status',
         chart: 'mostPopular',
         regionCode,
         videoCategoryId: '10', // Music category
@@ -169,7 +180,13 @@ export class YouTubeService {
 
     const items: any[] = response.data.items ?? [];
 
-    return items.map((item: any) => ({
+    return items
+      .filter(item => {
+        const status = item.status;
+        if (!status) return true;
+        return status.embeddable !== false && status.privacyStatus === 'public';
+      })
+      .map((item: any) => ({
       videoId: item.id as string,
       title: item.snippet.title as string,
       channelTitle: item.snippet.channelTitle as string,
