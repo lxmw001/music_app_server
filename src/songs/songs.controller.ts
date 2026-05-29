@@ -52,6 +52,11 @@ export class SongsController {
     return this.songsService.refreshMetadata(id);
   }
 
+  @Post(':id/find-alternative')
+  findAlternative(@Param('id') id: string): Promise<SearchSongDto> {
+    return this.songsService.findAlternative(id);
+  }
+
   @Post(':id/stream-url')
   saveStreamUrl(
     @Param('id') id: string,

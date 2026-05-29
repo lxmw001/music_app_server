@@ -205,6 +205,76 @@ export class SongsService implements OnModuleInit {
     return chunks;
   }
 
+  async findAlternative(songId: string): Promise<SearchSongDto> {
+    const doc = await this.firestore.doc(`songs/${songId}`).get();
+    if (!doc.exists) throw new NotFoundException('Song not found');
+
+    const song = doc.data()!;
+    const query = `${song.title} ${song.artistName}`;
+    this.logger.log(`Finding alternative for "${song.title}" - ${song.artistName} (youtubeId: ${song.youtubeId})`);
+
+    const results = await this.youtube.searchVideos(query, 10);
+    const candidates = results.filter(r =>
+      r.videoId !== song.youtubeId &&
+      r.playable !== false &&
+      !this.isMixOrVideo(r.title, r.durationSeconds)
+    );
+
+    if (candidates.length === 0) {
+      throw new NotFoundException('No alternative video found');
+    }
+
+    // Try each candidate in order — prefer already existing in DB
+    for (const candidate of candidates) {
+      const existingSnapshot = await this.firestore.collection('songs')
+        .where('youtubeId', '==', candidate.videoId)
+        .limit(1)
+        .get();
+
+      if (!existingSnapshot.empty) {
+        const existingDoc = existingSnapshot.docs[0];
+        const existingData = existingDoc.data();
+        // Mark current song as duplicate of existing
+        await this.dedup.recordDuplicate(song.youtubeId, existingDoc.id, candidate.videoId);
+        this.logger.log(`Marked "${song.title}" (${song.youtubeId}) as duplicate of "${existingData.title}" (${candidate.videoId})`);
+        return this.mapToSongResponse(existingDoc.id, existingData);
+      }
+    }
+
+    // No existing match — pick the best candidate and create a new song
+    const best = candidates[0];
+    const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
+    const allGenres = [...new Set([...(metadata?.tags || [])])].slice(0, 5);
+
+    const songData: any = {
+      title: song.title,
+      videoTitle: best.title,
+      artistName: song.artistName,
+      youtubeId: best.videoId,
+      nameLower: song.title.toLowerCase(),
+      coverImageUrl: metadata?.albumArt || best.thumbnailUrl || '',
+      durationSeconds: best.durationSeconds || 0,
+      genres: allGenres,
+      listeners: metadata?.listeners || 0,
+      tags: metadata?.rawTags || [],
+      searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    if (metadata?.album) songData.album = metadata.album;
+    if (metadata?.releaseDate) songData.releaseDate = metadata.releaseDate;
+    if (metadata?.mbid) songData.mbid = metadata.mbid;
+
+    const docRef = await this.firestore.collection('songs').add(songData);
+
+    // Mark original as duplicate
+    await this.dedup.recordDuplicate(song.youtubeId, docRef.id, best.videoId);
+    this.logger.log(`Created alternative "${song.title}" → ${best.videoId}, marked ${song.youtubeId} as duplicate`);
+
+    return this.mapToSongResponse(docRef.id, songData);
+  }
+
   private extractJson(text: string): string {
     const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match) return match[1].trim();
