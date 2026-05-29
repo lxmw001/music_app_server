@@ -234,45 +234,43 @@ export class SongsService implements OnModuleInit {
       if (!existingSnapshot.empty) {
         const existingDoc = existingSnapshot.docs[0];
         const existingData = existingDoc.data();
-        // Mark current song as duplicate of existing
-        await this.dedup.recordDuplicate(song.youtubeId, existingDoc.id, candidate.videoId);
-        this.logger.log(`Marked "${song.title}" (${song.youtubeId}) as duplicate of "${existingData.title}" (${candidate.videoId})`);
-        return this.mapToSongResponse(existingDoc.id, existingData);
+        // Update original song's youtubeId to point to the working video
+        const oldYoutubeId = song.youtubeId;
+        await this.firestore.doc(`songs/${songId}`).update({
+          youtubeId: candidate.videoId,
+          updatedAt: new Date(),
+        });
+        // Record old youtubeId as duplicate so future searches redirect here
+        await this.dedup.recordDuplicate(oldYoutubeId, songId, candidate.videoId);
+        this.logger.log(`Updated "${song.title}" youtubeId: ${oldYoutubeId} → ${candidate.videoId}`);
+        const updatedSong = await this.firestore.doc(`songs/${songId}`).get();
+        return this.mapToSongResponse(songId, updatedSong.data()!);
       }
     }
 
-    // No existing match — pick the best candidate and create a new song
+    // No existing match — pick the best candidate and update the original song
     const best = candidates[0];
     const metadata = await this.lastfm.searchTrack(song.title, song.artistName);
     const allGenres = [...new Set([...(metadata?.tags || [])])].slice(0, 5);
 
-    const songData: any = {
+    const oldYoutubeId = song.youtubeId;
+    await this.firestore.doc(`songs/${songId}`).update({
       title: song.title,
       videoTitle: best.title,
       artistName: song.artistName,
       youtubeId: best.videoId,
-      nameLower: song.title.toLowerCase(),
-      coverImageUrl: metadata?.albumArt || best.thumbnailUrl || '',
-      durationSeconds: best.durationSeconds || 0,
-      genres: allGenres,
-      listeners: metadata?.listeners || 0,
-      tags: metadata?.rawTags || [],
-      searchTokens: this.generateSearchTokens(song.title + ' ' + song.artistName),
-      createdAt: new Date(),
+      coverImageUrl: metadata?.albumArt || best.thumbnailUrl || song.coverImageUrl,
+      durationSeconds: best.durationSeconds || song.durationSeconds,
+      genres: allGenres.length > 0 ? allGenres : song.genres,
+      tags: metadata?.rawTags || song.tags,
       updatedAt: new Date(),
-    };
+    });
+    // Record old youtubeId as duplicate
+    await this.dedup.recordDuplicate(oldYoutubeId, songId, best.videoId);
+    this.logger.log(`Updated "${song.title}" youtubeId: ${oldYoutubeId} → ${best.videoId}`);
 
-    if (metadata?.album) songData.album = metadata.album;
-    if (metadata?.releaseDate) songData.releaseDate = metadata.releaseDate;
-    if (metadata?.mbid) songData.mbid = metadata.mbid;
-
-    const docRef = await this.firestore.collection('songs').add(songData);
-
-    // Mark original as duplicate
-    await this.dedup.recordDuplicate(song.youtubeId, docRef.id, best.videoId);
-    this.logger.log(`Created alternative "${song.title}" → ${best.videoId}, marked ${song.youtubeId} as duplicate`);
-
-    return this.mapToSongResponse(docRef.id, songData);
+    const updatedDoc = await this.firestore.doc(`songs/${songId}`).get();
+    return this.mapToSongResponse(songId, updatedDoc.data()!);
   }
 
   private extractJson(text: string): string {
@@ -1354,7 +1352,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
               id: doc.id,
               title: songData.title,
               artistName: songData.artistName,
-              youtubeId: s.youtubeId,
+              youtubeId: songData.youtubeId,
               thumbnailUrl: songData.coverImageUrl || s.thumbnailUrl,
               duration: songData.durationSeconds,
               rank: s.rank,
