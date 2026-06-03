@@ -1054,7 +1054,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
 
       if (!isStale) {
         this.logger.log(`Returning saved playlist for song ${songId}`);
-        const songIds = data.songs.slice(0, limit);
+        const songIds = data.songs.slice(0, limit).filter((id: string) => id !== songId);
         const songs = await Promise.all(
           songIds.map(async (id: string) => {
             const doc = await this.firestore.doc(`songs/${id}`).get();
@@ -1184,7 +1184,9 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       }
     }
 
-    const dedupedPlaylist = this.deduplicateByTitleArtist(playlist);
+    const dedupedPlaylist = this.deduplicateByTitleArtist(playlist).filter(s =>
+      s.id !== songId && `${(s.title || '').toLowerCase().trim()}::${(s.artistName || '').toLowerCase().trim()}` !== `${seedSong.title.toLowerCase().trim()}::${seedSong.artistName.toLowerCase().trim()}`
+    );
     this.logger.log(`Generated playlist with ${dedupedPlaylist.length} songs from YouTube related videos`);
 
     await this.firestore.doc(cacheKey).set({
