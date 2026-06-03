@@ -1045,6 +1045,13 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
       ? `playlists_generated/${songId}_${normalizedSearch}`
       : `playlists_generated/${songId}`;
 
+    const seedDoc = await this.firestore.doc(`songs/${songId}`).get();
+    if (!seedDoc.exists) {
+      throw new NotFoundException('Song not found');
+    }
+    const seedSong = seedDoc.data();
+    const seedKey = `${seedSong.title.toLowerCase().trim()}::${seedSong.artistName.toLowerCase().trim()}`;
+
     const playlistDoc = await this.firestore.doc(cacheKey).get();
 
     if (playlistDoc.exists) {
@@ -1064,16 +1071,12 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
             return null;
           })
         );
-        return songs.filter(s => s !== null);
+        return this.deduplicateByTitleArtist(songs.filter(s => s !== null)).filter(s =>
+          `${(s.title || '').toLowerCase().trim()}::${(s.artistName || '').toLowerCase().trim()}` !== seedKey
+        );
       }
     }
 
-    const seedDoc = await this.firestore.doc(`songs/${songId}`).get();
-    if (!seedDoc.exists) {
-      throw new NotFoundException('Song not found');
-    }
-
-    const seedSong = seedDoc.data();
     this.logger.log(`Generating playlist based on: ${seedSong.title} by ${seedSong.artistName}`);
 
     const playlist: SearchSongDto[] = [];
@@ -1185,7 +1188,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     }
 
     const dedupedPlaylist = this.deduplicateByTitleArtist(playlist).filter(s =>
-      s.id !== songId && `${(s.title || '').toLowerCase().trim()}::${(s.artistName || '').toLowerCase().trim()}` !== `${seedSong.title.toLowerCase().trim()}::${seedSong.artistName.toLowerCase().trim()}`
+      s.id !== songId && `${(s.title || '').toLowerCase().trim()}::${(s.artistName || '').toLowerCase().trim()}` !== seedKey
     );
     this.logger.log(`Generated playlist with ${dedupedPlaylist.length} songs from YouTube related videos`);
 

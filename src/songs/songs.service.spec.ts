@@ -138,14 +138,14 @@ describe("generatePlaylist — bug condition (Property 1)", () => {
     };
     mockYoutube = { getRelatedVideos: jest.fn().mockResolvedValue([]) };
 
-    // First call: playlist cache doc (does not exist)
-    // Second call: seed song doc (exists)
+    // First call: seed song doc (exists)
+    // Second call: playlist cache doc (does not exist)
     mockFirestore._docRef.get
-      .mockResolvedValueOnce({ exists: false })
       .mockResolvedValueOnce({
         exists: true,
         data: () => ({ title: "Test Song", artistName: "Test Artist" }),
-      });
+      })
+      .mockResolvedValueOnce({ exists: false });
 
     const module = await Test.createTestingModule({
       providers: [
@@ -190,11 +190,11 @@ describe("generatePlaylist — bug condition (Property 1)", () => {
     // Reset and re-configure mocks for this test
     mockFirestore._docRef.get
       .mockReset()
-      .mockResolvedValueOnce({ exists: false })
       .mockResolvedValueOnce({
         exists: true,
         data: () => ({ title: "Test Song", artistName: "Test Artist" }),
-      });
+      })
+      .mockResolvedValueOnce({ exists: false });
 
     await (service as any).generatePlaylist("song1", 30, "party hits");
 
@@ -224,13 +224,13 @@ describe("generatePlaylist — preservation (Property 2)", () => {
     };
     mockYoutube = { getRelatedVideos: jest.fn().mockResolvedValue([]) };
 
-    // Default: playlist cache miss, then valid seed song
+    // Default: valid seed song, then playlist cache miss
     mockFirestore._docRef.get
-      .mockResolvedValueOnce({ exists: false })
       .mockResolvedValueOnce({
         exists: true,
         data: () => ({ title: "Test Song", artistName: "Test Artist" }),
-      });
+      })
+      .mockResolvedValueOnce({ exists: false });
 
     const module = await Test.createTestingModule({
       providers: [
@@ -272,11 +272,11 @@ describe("generatePlaylist — preservation (Property 2)", () => {
   it("empty search: cache key is playlists_generated/{songId}", async () => {
     mockFirestore._docRef.get
       .mockReset()
-      .mockResolvedValueOnce({ exists: false })
       .mockResolvedValueOnce({
         exists: true,
         data: () => ({ title: "Test Song", artistName: "Test Artist" }),
-      });
+      })
+      .mockResolvedValueOnce({ exists: false });
 
     await (service as any).generatePlaylist("song1", 30, "");
 
@@ -286,11 +286,11 @@ describe("generatePlaylist — preservation (Property 2)", () => {
   it("whitespace-only search: cache key is playlists_generated/{songId}", async () => {
     mockFirestore._docRef.get
       .mockReset()
-      .mockResolvedValueOnce({ exists: false })
       .mockResolvedValueOnce({
         exists: true,
         data: () => ({ title: "Test Song", artistName: "Test Artist" }),
-      });
+      })
+      .mockResolvedValueOnce({ exists: false });
 
     await (service as any).generatePlaylist("song1", 30, "   ");
 
@@ -300,11 +300,11 @@ describe("generatePlaylist — preservation (Property 2)", () => {
   it("no search: Gemini prompt has no search context prefix", async () => {
     mockFirestore._docRef.get
       .mockReset()
-      .mockResolvedValueOnce({ exists: false })
       .mockResolvedValueOnce({
         exists: true,
         data: () => ({ title: "Test Song", artistName: "Test Artist" }),
-      });
+      })
+      .mockResolvedValueOnce({ exists: false });
 
     await (service as any).generatePlaylist("song1", 30);
 
