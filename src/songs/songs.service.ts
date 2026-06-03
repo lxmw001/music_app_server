@@ -1184,15 +1184,16 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       }
     }
 
-    this.logger.log(`Generated playlist with ${playlist.length} songs from YouTube related videos`);
+    const dedupedPlaylist = this.deduplicateByTitleArtist(playlist);
+    this.logger.log(`Generated playlist with ${dedupedPlaylist.length} songs from YouTube related videos`);
 
     await this.firestore.doc(cacheKey).set({
-      songs: playlist.map(s => s.id).filter(Boolean),
+      songs: dedupedPlaylist.map(s => s.id).filter(Boolean),
       generatedAt: playlistDoc.exists ? playlistDoc.data().generatedAt : new Date(),
       lastUpdated: new Date(),
     });
 
-    return playlist;
+    return dedupedPlaylist;
   }
 
   async refreshMetadata(songId: string): Promise<{ success: boolean; message: string }> {
@@ -1405,7 +1406,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     }
 
     return {
-      songs,
+      songs: this.deduplicateByTitleArtist(songs),
       mixes: (data.mixes || []).map((m) => ({
         ...m,
         genres: m.genres || [],
@@ -1414,5 +1415,15 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       videos: data.videos || [],
       artists,
     };
+  }
+
+  private deduplicateByTitleArtist(songs: any[]): any[] {
+    const seen = new Set<string>();
+    return songs.filter(s => {
+      const key = `${(s.title || '').toLowerCase().trim()}::${(s.artistName || '').toLowerCase().trim()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 }
