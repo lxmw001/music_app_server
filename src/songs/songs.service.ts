@@ -558,6 +558,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
 
             await Promise.all(
               dedupedUnknown.map(async (song, i) => {
+                if (!song.videoId) return;
                 const original = results.find(r => r.videoId === song.videoId);
                 const classifiedSong = unknownClassifiedSongs.find(s => s.videoId === song.videoId);
                 const metadata = metadataResults[i];
@@ -953,6 +954,7 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
 
         await Promise.all(
           newSongs.map(async (song, i) => {
+            if (!song.videoId) return;
             const original = trendingVideos.find(r => r.videoId === song.videoId);
             const metadata = metadataResults[i];
             const allGenres = [...new Set([...(song.genres || []), ...(metadata?.tags || [])])].slice(0, 5);
