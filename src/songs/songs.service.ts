@@ -1084,8 +1084,12 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
     const playlist: SearchSongDto[] = [];
     const seenIds = new Set<string>([songId]);
 
-    // Get artist's best songs from YouTube using artistName from Firestore (no extra API call)
-    const relatedVideos = await this.youtube.getRelatedVideos(seedSong.artistName, limit * 2);
+    // Build a richer search query using artist, genre, and title
+    const genre = seedSong.genres?.[0] || seedSong.genre || '';
+    const searchQuery = genre
+      ? `${seedSong.artistName} ${genre} music`
+      : `${seedSong.artistName} best songs`;
+    const relatedVideos = await this.youtube.searchVideos(searchQuery, limit * 2);
     
     // Clean and classify with Gemini
     const searchContext = normalizedSearch

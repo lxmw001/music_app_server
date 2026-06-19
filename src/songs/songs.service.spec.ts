@@ -126,7 +126,7 @@ describe("generatePlaylist — bug condition (Property 1)", () => {
   let service: SongsService;
   let mockFirestore: ReturnType<typeof createMockFirestore>;
   let mockGemini: { generate: jest.Mock; parseSearchIntent: jest.Mock };
-  let mockYoutube: { getRelatedVideos: jest.Mock };
+  let mockYoutube: { searchVideos: jest.Mock };
 
   beforeEach(async () => {
     mockFirestore = createMockFirestore();
@@ -136,7 +136,7 @@ describe("generatePlaylist — bug condition (Property 1)", () => {
         .mockResolvedValue('{"songs":[],"mixes":[],"videos":[],"artists":[]}'),
       parseSearchIntent: jest.fn().mockResolvedValue(null),
     };
-    mockYoutube = { getRelatedVideos: jest.fn().mockResolvedValue([]) };
+    mockYoutube = { searchVideos: jest.fn().mockResolvedValue([]) };
 
     // First call: seed song doc (exists)
     // Second call: playlist cache doc (does not exist)
@@ -212,7 +212,7 @@ describe("generatePlaylist — preservation (Property 2)", () => {
   let service: SongsService;
   let mockFirestore: ReturnType<typeof createMockFirestore>;
   let mockGemini: { generate: jest.Mock; parseSearchIntent: jest.Mock };
-  let mockYoutube: { getRelatedVideos: jest.Mock };
+  let mockYoutube: { searchVideos: jest.Mock };
 
   beforeEach(async () => {
     mockFirestore = createMockFirestore();
@@ -222,7 +222,7 @@ describe("generatePlaylist — preservation (Property 2)", () => {
         .mockResolvedValue('{"songs":[],"mixes":[],"videos":[],"artists":[]}'),
       parseSearchIntent: jest.fn().mockResolvedValue(null),
     };
-    mockYoutube = { getRelatedVideos: jest.fn().mockResolvedValue([]) };
+    mockYoutube = { searchVideos: jest.fn().mockResolvedValue([]) };
 
     // Default: valid seed song, then playlist cache miss
     mockFirestore._docRef.get
