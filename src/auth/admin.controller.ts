@@ -1,5 +1,6 @@
-import { Controller, Post, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Post, Delete, Get, Param, Body, Query } from '@nestjs/common';
 import { FirebaseAdminService } from '../auth/firebase-admin.service';
+import { FirestoreService } from '../firestore/firestore.service';
 import { SongsService } from '../songs/songs.service';
 
 @Controller('admin')
@@ -7,6 +8,7 @@ export class AdminController {
   constructor(
     private readonly firebaseAdmin: FirebaseAdminService,
     private readonly songsService: SongsService,
+    private readonly firestore: FirestoreService,
   ) {}
 
   @Post('set-admin/:uid')
@@ -57,5 +59,14 @@ export class AdminController {
   @Post('backfill-video-titles')
   async backfillVideoTitles(): Promise<{ processed: number; skipped: number; failed: number }> {
     return this.songsService.backfillVideoTitles();
+  }
+
+  @Get('error-reports')
+  async getErrorReports(@Query('limit') limit?: string) {
+    const snap = await this.firestore.collection('error_reports')
+      .orderBy('createdAt', 'desc')
+      .limit(parseInt(limit) || 50)
+      .get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() }));
   }
 }

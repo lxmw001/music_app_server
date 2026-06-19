@@ -15,6 +15,7 @@ import { AdminController } from './auth/admin.controller';
 import { UsersModule } from './users/users.module';
 import { VibeModule } from './vibe/vibe.module';
 import { VibesModule } from './vibes/vibes.module';
+import { FirestoreModule } from './firestore/firestore.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { VibesModule } from './vibes/vibes.module';
     ScheduleModule.forRoot(),
     CacheModule,
     AuthModule,
+    FirestoreModule,
     SongsModule,
     ArtistsModule,
     AlbumsModule,
