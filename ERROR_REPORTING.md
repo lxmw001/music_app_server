@@ -18,6 +18,11 @@ Content-Type: application/json
 | `line` | string | ⬜ | Line number |
 | `screen` | string | ⬜ | Current screen/route name |
 | `action` | string | ⬜ | What the user was doing (e.g. "play_song", "search", "like_song") |
+| `endpoint` | string | ⬜ | API endpoint that failed (e.g. "/songs/abc123/stream-url") |
+| `statusCode` | int | ⬜ | HTTP status code returned |
+| `songId` | string | ⬜ | Firestore song ID involved |
+| `youtubeId` | string | ⬜ | YouTube video ID involved |
+| `requestBody` | string | ⬜ | JSON string of the request body sent |
 | `deviceInfo` | string | ⬜ | Device model + OS version |
 | `appVersion` | string | ⬜ | App version string |
 
@@ -44,6 +49,11 @@ class ErrorReportingService {
     String? line,
     String? screen,
     String? action,
+    String? endpoint,
+    int? statusCode,
+    String? songId,
+    String? youtubeId,
+    String? requestBody,
   }) async {
     try {
       final deviceInfo = await _getDeviceInfo();
@@ -56,6 +66,11 @@ class ErrorReportingService {
         if (line != null) 'line': line,
         if (screen != null) 'screen': screen,
         if (action != null) 'action': action,
+        if (endpoint != null) 'endpoint': endpoint,
+        if (statusCode != null) 'statusCode': statusCode,
+        if (songId != null) 'songId': songId,
+        if (youtubeId != null) 'youtubeId': youtubeId,
+        if (requestBody != null) 'requestBody': requestBody,
         'deviceInfo': deviceInfo,
         'appVersion': appVersion,
       });
@@ -126,24 +141,27 @@ Future<void> playSong(Song song) async {
       stackTrace: stack.toString(),
       screen: 'PlayerScreen',
       action: 'play_song',
+      songId: song.id,
+      youtubeId: song.youtubeId,
     );
     rethrow;
   }
 }
 
-// In search
-Future<List<Song>> search(String query) async {
-  try {
-    return await api.get('/songs/search-youtube?query=$query');
-  } catch (e, stack) {
+// In API calls
+Future<dynamic> get(String path) async {
+  final res = await http.get(Uri.parse('$baseUrl$path'), headers: await _headers());
+  if (res.statusCode >= 400) {
     errorReporting.report(
-      error: e.toString(),
-      stackTrace: stack.toString(),
-      screen: 'SearchScreen',
-      action: 'search',
+      error: res.body,
+      endpoint: path,
+      statusCode: res.statusCode,
+      screen: currentScreen,
+      action: 'api_call',
     );
-    rethrow;
+    throw ApiException.fromResponse(res);
   }
+  return jsonDecode(res.body);
 }
 ```
 
@@ -166,6 +184,11 @@ dependencies:
   "line": "45",
   "screen": "PlayerScreen",
   "action": "play_song",
+  "endpoint": "/songs/abc123/stream-url",
+  "statusCode": 404,
+  "songId": "abc123",
+  "youtubeId": "xjwnKN4UXBs",
+  "requestBody": "{\"streamUrl\":\"...\"}",
   "deviceInfo": "iPhone 15, iOS 18.2",
   "appVersion": "1.2.3+42",
   "createdAt": "2026-06-19T10:00:00.000Z"

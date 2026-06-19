@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsInt } from 'class-validator';
 
 export class ErrorReportDto {
   @IsString()
@@ -23,6 +23,26 @@ export class ErrorReportDto {
   @IsOptional()
   @IsString()
   action?: string;
+
+  @IsOptional()
+  @IsString()
+  endpoint?: string;
+
+  @IsOptional()
+  @IsInt()
+  statusCode?: number;
+
+  @IsOptional()
+  @IsString()
+  songId?: string;
+
+  @IsOptional()
+  @IsString()
+  youtubeId?: string;
+
+  @IsOptional()
+  @IsString()
+  requestBody?: string;
 
   @IsOptional()
   @IsString()
