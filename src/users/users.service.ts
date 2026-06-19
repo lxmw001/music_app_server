@@ -84,6 +84,15 @@ export class UsersService {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
+  async saveErrorReport(uid: string, report: any): Promise<{ id: string }> {
+    const ref = await this.firestore.collection('error_reports').add({
+      uid,
+      ...report,
+      createdAt: new Date(),
+    });
+    return { id: ref.id };
+  }
+
   private async verifySongExists(songId: string): Promise<void> {
     const doc = await this.firestore.doc(`songs/${songId}`).get();
     if (!doc.exists) throw new NotFoundException('Song not found');

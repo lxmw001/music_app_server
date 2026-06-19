@@ -15,6 +15,7 @@ import { UsersService } from './users.service';
 import { PlaylistsService } from '../playlists/playlists.service';
 import { CreatePlaylistDto } from '../playlists/dto/create-playlist.dto';
 import { AddSongDto } from '../playlists/dto/add-song.dto';
+import { ErrorReportDto } from './dto/error-report.dto';
 
 @UseGuards(FirebaseAuthGuard)
 @Controller('users/me')
@@ -116,5 +117,13 @@ export class UsersController {
   @HttpCode(204)
   deletePlaylist(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.playlistsService.delete(id, req.user.uid);
+  }
+
+  // ── Error Reporting ────────────────────────────────────────────────────────
+
+  @Post('error-report')
+  @HttpCode(201)
+  reportError(@Req() req: AuthenticatedRequest, @Body() dto: ErrorReportDto) {
+    return this.usersService.saveErrorReport(req.user.uid, dto);
   }
 }
