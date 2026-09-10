@@ -1338,10 +1338,16 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     if (!data.streamUrl || !data.streamUrlExpiresAt) return { streamUrl: null, streamUrlExpiresAt: null };
     const expiresAt = data.streamUrlExpiresAt.toDate();
     if (expiresAt <= new Date()) return { streamUrl: null, streamUrlExpiresAt: null };
+    // Reject localhost/private URLs mistakenly stored from youtube_explode_dart's local proxy
+    if (this.isLocalUrl(data.streamUrl)) return { streamUrl: null, streamUrlExpiresAt: null };
     return { streamUrl: data.streamUrl, streamUrlExpiresAt: expiresAt.toISOString() };
   }
 
   async saveStreamUrl(id: string, streamUrl: string, expiresAt: Date): Promise<void> {
+    if (this.isLocalUrl(streamUrl)) {
+      console.warn(`[SongsService] Rejected localhost streamUrl for song ${id}: ${streamUrl.substring(0, 60)}`);
+      return;
+    }
     const doc = await this.firestore.doc(`songs/${id}`).get();
     if (!doc.exists) throw new NotFoundException('Song not found');
 
@@ -1350,7 +1356,20 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
   }
 
   async saveMixStreamUrl(youtubeId: string, streamUrl: string, expiresAt: Date): Promise<void> {
+    if (this.isLocalUrl(streamUrl)) {
+      console.warn(`[SongsService] Rejected localhost streamUrl for mix ${youtubeId}: ${streamUrl.substring(0, 60)}`);
+      return;
+    }
     await this.firestore.doc(`mixes/${youtubeId}`).set({ streamUrl, streamUrlExpiresAt: expiresAt }, { merge: true });
+  }
+
+  private isLocalUrl(url: string): boolean {
+    try {
+      const host = new URL(url).hostname;
+      return host === '127.0.0.1' || host === 'localhost' || host.startsWith('192.168.') || host.startsWith('10.');
+    } catch (_) {
+      return true; // reject unparseable URLs
+    }
   }
 
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
