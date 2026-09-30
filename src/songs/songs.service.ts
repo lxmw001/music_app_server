@@ -1372,6 +1372,49 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     }
   }
 
+  async streamAudio(videoId: string, range: string, res: any): Promise<void> {
+    // Dynamically import to avoid startup overhead
+    const ytdl = (await import('@distube/ytdl-core')).default;
+    const info = await ytdl.getInfo(videoId);
+    const format = ytdl.chooseFormat(info.formats, {
+      quality: 'highestaudio',
+      filter: 'audioonly',
+    });
+
+    if (!format) {
+      res.status(404).json({ message: 'No audio format found' });
+      return;
+    }
+
+    const contentLength = parseInt(format.contentLength ?? '0', 10);
+    const mimeType = format.mimeType ?? 'audio/mp4';
+
+    if (range && contentLength > 0) {
+      const [startStr, endStr] = range.replace('bytes=', '').split('-');
+      const start = parseInt(startStr, 10);
+      const end = endStr ? parseInt(endStr, 10) : contentLength - 1;
+      const chunkSize = end - start + 1;
+
+      res.status(206).set({
+        'Content-Range': `bytes ${start}-${end}/${contentLength}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': mimeType,
+        'Cache-Control': 'no-cache',
+      });
+
+      ytdl(videoId, { format }).pipe(res);
+    } else {
+      res.status(200).set({
+        'Content-Type': mimeType,
+        'Content-Length': contentLength || undefined,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache',
+      });
+      ytdl(videoId, { format }).pipe(res);
+    }
+  }
+
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
     const songs = await Promise.all(
       (data.songs || []).map(async (s) => {

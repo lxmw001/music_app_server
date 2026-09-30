@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Query, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Query, Post, UseGuards, Res, Headers } from '@nestjs/common';
+import { Response } from 'express';
 import { OptionalAuthGuard } from '../auth/optional-auth.guard';
 import { SongsService } from './songs.service';
 import { PaginationDto } from './dto/pagination.dto';
@@ -71,5 +72,14 @@ export class SongsController {
     @Body() body: { streamUrl: string; expiresAt: string },
   ): Promise<void> {
     return this.songsService.saveMixStreamUrl(youtubeId, body.streamUrl, new Date(body.expiresAt));
+  }
+
+  @Get(':videoId/audio-stream')
+  async streamAudio(
+    @Param('videoId') videoId: string,
+    @Headers('range') range: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    return this.songsService.streamAudio(videoId, range, res);
   }
 }

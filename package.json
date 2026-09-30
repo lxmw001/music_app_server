@@ -27,6 +27,7 @@
     "test:all": "NODE_ENV=test jest --runInBand"
   },
   "dependencies": {
+    "@distube/ytdl-core": "4.16.12",
     "@google/genai": "^1.50.1",
     "@nestjs/cache-manager": "^2.3.0",
     "@nestjs/common": "^10.0.0",
