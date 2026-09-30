@@ -75,6 +75,7 @@ export class SongsController {
   }
 
   @Get(':videoId/audio-stream')
+  @UseGuards() // No auth — stream is public, protected only by knowing the video ID
   async streamAudio(
     @Param('videoId') videoId: string,
     @Headers('range') range: string,

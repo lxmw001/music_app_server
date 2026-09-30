@@ -1373,56 +1373,47 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
   }
 
   async streamAudio(videoId: string, range: string, res: any): Promise<void> {
-    // @distube/ytdl-core depends on undici which requires File (Node 20+).
-    // Polyfill for Node 18 (Cloud Run default runtime).
-    if (typeof (globalThis as any).File === 'undefined') {
-      (globalThis as any).File = class File extends Blob {
-        name: string; lastModified: number;
-        constructor(chunks: any[], name: string, opts?: any) {
-          super(chunks, opts); this.name = name; this.lastModified = opts?.lastModified ?? Date.now();
-        }
+    // Use yt-dlp to get a fresh stream URL from the server's IP, then proxy
+    // the bytes to the client. We must proxy (not redirect) because YouTube
+    // IP-locks the URL to the server's IP — a redirect would 403 on the device.
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    const https = await import('https');
+
+    const ytDlpPath = process.env.YTDLP_PATH || 'yt-dlp';
+    const { stdout } = await execAsync(
+      `${ytDlpPath} -f "bestaudio[ext=m4a]/bestaudio" --get-url "https://www.youtube.com/watch?v=${videoId}" --no-playlist`,
+      { timeout: 30000 }
+    );
+    const streamUrl = stdout.trim().split('\n')[0];
+    if (!streamUrl || !streamUrl.startsWith('http')) {
+      throw new Error('No stream URL returned by yt-dlp');
+    }
+
+    this.logger.log(`[streamAudio] Proxying ${videoId} c=${new URL(streamUrl).searchParams.get('c')}`);
+
+    const headers: Record<string, string> = {
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.18 Safari/537.36',
+    };
+    if (range) headers['range'] = range;
+
+    https.get(streamUrl, { headers }, (ytRes) => {
+      const status = ytRes.statusCode ?? 200;
+      const proxyHeaders: Record<string, string | string[]> = {
+        'Content-Type': (ytRes.headers['content-type'] as string) || 'audio/mp4',
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache',
       };
-    }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const ytdl = require('@distube/ytdl-core');
-    const info = await ytdl.getInfo(videoId);
-    const format = ytdl.chooseFormat(info.formats, {
-      quality: 'highestaudio',
-      filter: 'audioonly',
+      if (ytRes.headers['content-length']) proxyHeaders['Content-Length'] = ytRes.headers['content-length'];
+      if (ytRes.headers['content-range']) proxyHeaders['Content-Range'] = ytRes.headers['content-range'] as string;
+
+      res.writeHead(status, proxyHeaders);
+      ytRes.pipe(res);
+    }).on('error', (e) => {
+      this.logger.error(`[streamAudio] proxy error: ${e.message}`);
+      if (!res.headersSent) res.status(502).json({ message: 'Proxy error', error: e.message });
     });
-
-    if (!format) {
-      res.status(404).json({ message: 'No audio format found' });
-      return;
-    }
-
-    const contentLength = parseInt(format.contentLength ?? '0', 10);
-    const mimeType = format.mimeType ?? 'audio/mp4';
-
-    if (range && contentLength > 0) {
-      const [startStr, endStr] = range.replace('bytes=', '').split('-');
-      const start = parseInt(startStr, 10);
-      const end = endStr ? parseInt(endStr, 10) : contentLength - 1;
-      const chunkSize = end - start + 1;
-
-      res.status(206).set({
-        'Content-Range': `bytes ${start}-${end}/${contentLength}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': mimeType,
-        'Cache-Control': 'no-cache',
-      });
-
-      ytdl(videoId, { format }).pipe(res);
-    } else {
-      res.status(200).set({
-        'Content-Type': mimeType,
-        'Content-Length': contentLength || undefined,
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'no-cache',
-      });
-      ytdl(videoId, { format }).pipe(res);
-    }
   }
 
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {
