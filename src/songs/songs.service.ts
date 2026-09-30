@@ -1382,13 +1382,26 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     const https = await import('https');
 
     const ytDlpPath = process.env.YTDLP_PATH || 'yt-dlp';
-    const { stdout } = await execAsync(
-      `${ytDlpPath} -f "bestaudio[ext=m4a]/bestaudio" --get-url "https://www.youtube.com/watch?v=${videoId}" --no-playlist --extractor-args "youtube:player_client=ios,android_vr"`,
-      { timeout: 30000 }
-    );
+    this.logger.log(`[streamAudio] Starting for ${videoId} ytDlpPath=${ytDlpPath}`);
+
+    let stdout: string;
+    try {
+      const result = await execAsync(
+        `${ytDlpPath} -f "bestaudio[ext=m4a]/bestaudio" --get-url "https://www.youtube.com/watch?v=${videoId}" --no-playlist --extractor-args "youtube:player_client=ios,android_vr"`,
+        { timeout: 30000 }
+      );
+      stdout = result.stdout;
+    } catch (e: any) {
+      this.logger.error(`[streamAudio] yt-dlp failed for ${videoId}: ${e.message}\nstderr: ${e.stderr}`);
+      res.status(500).json({ message: 'yt-dlp failed', error: e.message });
+      return;
+    }
+
     const streamUrl = stdout.trim().split('\n')[0];
     if (!streamUrl || !streamUrl.startsWith('http')) {
-      throw new Error('No stream URL returned by yt-dlp');
+      this.logger.error(`[streamAudio] No valid URL returned for ${videoId}: "${stdout.trim()}"`);
+      res.status(500).json({ message: 'No stream URL returned' });
+      return;
     }
 
     this.logger.log(`[streamAudio] Proxying ${videoId} c=${new URL(streamUrl).searchParams.get('c')}`);
@@ -1400,6 +1413,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
 
     https.get(streamUrl, { headers }, (ytRes) => {
       const status = ytRes.statusCode ?? 200;
+      this.logger.log(`[streamAudio] YouTube responded ${status} for ${videoId}`);
       const proxyHeaders: Record<string, string | string[]> = {
         'Content-Type': (ytRes.headers['content-type'] as string) || 'audio/mp4',
         'Accept-Ranges': 'bytes',
@@ -1411,7 +1425,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       res.writeHead(status, proxyHeaders);
       ytRes.pipe(res);
     }).on('error', (e) => {
-      this.logger.error(`[streamAudio] proxy error: ${e.message}`);
+      this.logger.error(`[streamAudio] proxy error for ${videoId}: ${e.message}`);
       if (!res.headersSent) res.status(502).json({ message: 'Proxy error', error: e.message });
     });
   }
