@@ -1373,6 +1373,16 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
   }
 
   async streamAudio(videoId: string, range: string, res: any): Promise<void> {
+    // @distube/ytdl-core depends on undici which requires File (Node 20+).
+    // Polyfill for Node 18 (Cloud Run default runtime).
+    if (typeof (globalThis as any).File === 'undefined') {
+      (globalThis as any).File = class File extends Blob {
+        name: string; lastModified: number;
+        constructor(chunks: any[], name: string, opts?: any) {
+          super(chunks, opts); this.name = name; this.lastModified = opts?.lastModified ?? Date.now();
+        }
+      };
+    }
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const ytdl = require('@distube/ytdl-core');
     const info = await ytdl.getInfo(videoId);
