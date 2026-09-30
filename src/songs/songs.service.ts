@@ -1383,7 +1383,7 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
 
     const ytDlpPath = process.env.YTDLP_PATH || 'yt-dlp';
     const { stdout } = await execAsync(
-      `${ytDlpPath} -f "bestaudio[ext=m4a]/bestaudio" --get-url "https://www.youtube.com/watch?v=${videoId}" --no-playlist`,
+      `${ytDlpPath} -f "bestaudio[ext=m4a]/bestaudio" --get-url "https://www.youtube.com/watch?v=${videoId}" --no-playlist --extractor-args "youtube:player_client=ios,android_vr"`,
       { timeout: 30000 }
     );
     const streamUrl = stdout.trim().split('\n')[0];
