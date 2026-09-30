@@ -1373,8 +1373,8 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
   }
 
   async streamAudio(videoId: string, range: string, res: any): Promise<void> {
-    // Dynamically import to avoid startup overhead
-    const ytdl = (await import('@distube/ytdl-core')).default;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ytdl = require('@distube/ytdl-core');
     const info = await ytdl.getInfo(videoId);
     const format = ytdl.chooseFormat(info.formats, {
       quality: 'highestaudio',
