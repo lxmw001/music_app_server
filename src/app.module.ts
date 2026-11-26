@@ -16,6 +16,7 @@ import { UsersModule } from './users/users.module';
 import { VibeModule } from './vibe/vibe.module';
 import { VibesModule } from './vibes/vibes.module';
 import { FirestoreModule } from './firestore/firestore.module';
+import { PlayerModule } from './player/player.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { FirestoreModule } from './firestore/firestore.module';
     UsersModule,
     VibeModule,
     VibesModule,
+    PlayerModule,
   ],
   controllers: [AdminController],
   providers: [],
