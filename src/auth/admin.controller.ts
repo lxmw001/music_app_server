@@ -69,4 +69,27 @@ export class AdminController {
       .get();
     return snap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate?.() }));
   }
+
+  /**
+   * Save YouTube cookies from the admin WebView login.
+   * Only the admin user (lx.mw001@gmail.com) can call this.
+   * Cookies are stored in Firestore and used by yt-dlp for stream proxying.
+   */
+  @Post('yt-cookies')
+  async saveYtCookies(@Body('cookies') cookies: string): Promise<{ message: string }> {
+    if (!cookies) throw new Error('cookies field is required');
+    await this.firestore.doc('config/yt_cookies').set({
+      cookies,
+      updatedAt: new Date(),
+    });
+    return { message: 'YouTube cookies saved successfully' };
+  }
+
+  @Get('yt-cookies/status')
+  async getYtCookiesStatus(): Promise<{ exists: boolean; updatedAt: string | null }> {
+    const doc = await this.firestore.doc('config/yt_cookies').get();
+    if (!doc.exists) return { exists: false, updatedAt: null };
+    const data = doc.data();
+    return { exists: true, updatedAt: data.updatedAt?.toDate?.()?.toISOString() ?? null };
+  }
 }

@@ -1372,35 +1372,84 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     }
   }
 
+  // In-memory cache for YouTube cookies loaded from Firestore
+  private _ytCookies: string | null = null;
+  private _ytCookiesLoadedAt: Date | null = null;
+
+  private async loadYtCookies(): Promise<string | null> {
+    // Refresh cache every 12 hours
+    const now = new Date();
+    if (this._ytCookies && this._ytCookiesLoadedAt &&
+        (now.getTime() - this._ytCookiesLoadedAt.getTime()) < 12 * 60 * 60 * 1000) {
+      return this._ytCookies;
+    }
+    try {
+      const doc = await this.firestore.doc('config/yt_cookies').get();
+      if (doc.exists) {
+        this._ytCookies = doc.data().cookies as string;
+        this._ytCookiesLoadedAt = now;
+        this.logger.log('[streamAudio] Loaded YouTube cookies from Firestore');
+        return this._ytCookies;
+      }
+    } catch (e) {
+      this.logger.warn(`[streamAudio] Failed to load yt cookies: ${(e as Error).message}`);
+    }
+    return null;
+  }
+
   async streamAudio(videoId: string, range: string, res: any): Promise<void> {
-    // Use yt-dlp to get a fresh stream URL from the server's IP, then proxy
-    // the bytes to the client. We must proxy (not redirect) because YouTube
-    // IP-locks the URL to the server's IP — a redirect would 403 on the device.
     const { exec } = await import('child_process');
     const { promisify } = await import('util');
     const execAsync = promisify(exec);
     const https = await import('https');
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
 
     const ytDlpPath = process.env.YTDLP_PATH || 'yt-dlp';
-    this.logger.log(`[streamAudio] Starting for ${videoId} ytDlpPath=${ytDlpPath}`);
+    const ytCookies = await this.loadYtCookies();
+    this.logger.log(`[streamAudio] Starting for ${videoId} hasCookies=${!!ytCookies}`);
 
+    // Write cookies to a temp Netscape-format file if available
+    let cookieFile: string | null = null;
+    if (ytCookies) {
+      cookieFile = path.join(os.tmpdir(), `yt_cookies_${Date.now()}.txt`);
+      const lines = ['# Netscape HTTP Cookie File'];
+      for (const part of ytCookies.split(';')) {
+        const [name, ...rest] = part.trim().split('=');
+        const value = rest.join('=');
+        if (name && value) {
+          lines.push(`.youtube.com\tTRUE\t/\tTRUE\t9999999999\t${name.trim()}\t${value.trim()}`);
+        }
+      }
+      fs.writeFileSync(cookieFile, lines.join('\n'));
+    }
+
+    const cookieArg = cookieFile ? `--cookies "${cookieFile}"` : '';
     let stdout: string;
     try {
       const result = await execAsync(
-        `${ytDlpPath} -f "bestaudio[ext=m4a]/bestaudio" --get-url "https://www.youtube.com/watch?v=${videoId}" --no-playlist --extractor-args "youtube:player_client=ios,android_vr"`,
+        `${ytDlpPath} -f "bestaudio[ext=m4a]/bestaudio" --get-url "https://www.youtube.com/watch?v=${videoId}" --no-playlist ${cookieArg} --extractor-args "youtube:player_client=ios,android_vr"`,
         { timeout: 30000 }
       );
       stdout = result.stdout;
     } catch (e: any) {
-      this.logger.error(`[streamAudio] yt-dlp failed for ${videoId}: ${e.message}\nstderr: ${e.stderr}`);
-      res.status(500).json({ message: 'yt-dlp failed', error: e.message });
+      this.logger.error(`[streamAudio] yt-dlp failed for ${videoId}: ${e.stderr?.substring(0, 300)}`);
+      if (cookieFile) try { fs.unlinkSync(cookieFile); } catch (_) {}
+      // Invalidate cookie cache if bot-check triggered so next request reloads
+      if (e.stderr?.includes('Sign in to confirm')) {
+        this._ytCookies = null;
+        this._ytCookiesLoadedAt = null;
+      }
+      res.status(500).json({ message: 'yt-dlp failed', needsCookies: !ytCookies });
       return;
     }
+    if (cookieFile) try { fs.unlinkSync(cookieFile); } catch (_) {}
 
-    const streamUrl = stdout.trim().split('\n')[0];
-    if (!streamUrl || !streamUrl.startsWith('http')) {
-      this.logger.error(`[streamAudio] No valid URL returned for ${videoId}: "${stdout.trim()}"`);
-      res.status(500).json({ message: 'No stream URL returned' });
+    const streamUrl = stdout.trim().split('\n').find(l => l.startsWith('http'));
+    if (!streamUrl) {
+      this.logger.error(`[streamAudio] No valid URL for ${videoId}`);
+      res.status(500).json({ message: 'No stream URL returned', needsCookies: !ytCookies });
       return;
     }
 
@@ -1412,8 +1461,8 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
     if (range) headers['range'] = range;
 
     https.get(streamUrl, { headers }, (ytRes) => {
+      this.logger.log(`[streamAudio] YouTube responded ${ytRes.statusCode} for ${videoId}`);
       const status = ytRes.statusCode ?? 200;
-      this.logger.log(`[streamAudio] YouTube responded ${status} for ${videoId}`);
       const proxyHeaders: Record<string, string | string[]> = {
         'Content-Type': (ytRes.headers['content-type'] as string) || 'audio/mp4',
         'Accept-Ranges': 'bytes',
@@ -1421,7 +1470,6 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       };
       if (ytRes.headers['content-length']) proxyHeaders['Content-Length'] = ytRes.headers['content-length'];
       if (ytRes.headers['content-range']) proxyHeaders['Content-Range'] = ytRes.headers['content-range'] as string;
-
       res.writeHead(status, proxyHeaders);
       ytRes.pipe(res);
     }).on('error', (e) => {

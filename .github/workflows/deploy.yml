@@ -1,4 +1,4 @@
-name: Deploy to Firebase
+name: Deploy to Cloud Run
 
 on:
   push:
@@ -11,16 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run tests
         run: npm run test:unit
 
@@ -28,40 +28,77 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-      
+
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
-      
+
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-central1-docker.pkg.dev
-      
+
       - name: Create Artifact Registry repository if not exists
         run: |
           gcloud artifacts repositories create cloud-run-source-deploy \
             --repository-format=docker \
             --location=us-central1 \
             --project=${{ secrets.FIREBASE_PROJECT_ID }} || true
-      
+
       - name: Build and Push Docker Image
+        # Tag with both commit SHA (for traceability) and 'latest' (for reuse).
+        # Only 'latest' is used for deployment — old SHA tags are cleaned up below.
         run: |
-          docker build -t us-central1-docker.pkg.dev/${{ secrets.FIREBASE_PROJECT_ID }}/cloud-run-source-deploy/music-app-server:${{ github.sha }} .
-          docker push us-central1-docker.pkg.dev/${{ secrets.FIREBASE_PROJECT_ID }}/cloud-run-source-deploy/music-app-server:${{ github.sha }}
-      
+          IMAGE="us-central1-docker.pkg.dev/${{ secrets.FIREBASE_PROJECT_ID }}/cloud-run-source-deploy/music-app-server"
+          docker build \
+            -t "${IMAGE}:${{ github.sha }}" \
+            -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+
       - name: Deploy to Cloud Run
         run: |
+          IMAGE="us-central1-docker.pkg.dev/${{ secrets.FIREBASE_PROJECT_ID }}/cloud-run-source-deploy/music-app-server"
           gcloud run deploy music-app-server \
-            --image us-central1-docker.pkg.dev/${{ secrets.FIREBASE_PROJECT_ID }}/cloud-run-source-deploy/music-app-server:${{ github.sha }} \
+            --image "${IMAGE}:${{ github.sha }}" \
             --platform managed \
             --region us-central1 \
             --allow-unauthenticated \
+            --max-instances 3 \
             --set-env-vars="FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }},FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@music-app-e8267.iam.gserviceaccount.com,NODE_ENV=production,FIRESTORE_DATABASE_ID=music-db" \
             --update-secrets="FIREBASE_PRIVATE_KEY=FIREBASE_PRIVATE_KEY:latest,YOUTUBE_API_KEY=YOUTUBE_API_KEY:latest,YOUTUBE_API_KEY_2=YOUTUBE_API_KEY_2:latest,YOUTUBE_API_KEY_3=YOUTUBE_API_KEY_3:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,LASTFM_API_KEY=LASTFM_API_KEY:latest" \
             --project ${{ secrets.FIREBASE_PROJECT_ID }}
+
+      - name: Clean up old Docker images (keep last 5)
+        # Delete all but the 5 most recent images to avoid Artifact Registry storage costs.
+        run: |
+          IMAGE_PATH="us-central1-docker.pkg.dev/${{ secrets.FIREBASE_PROJECT_ID }}/cloud-run-source-deploy/music-app-server"
+          # List all digests sorted by creation time, skip the 5 most recent
+          gcloud artifacts docker images list "${IMAGE_PATH}" \
+            --include-tags \
+            --sort-by="~CREATE_TIME" \
+            --format="get(DIGEST)" \
+            --project=${{ secrets.FIREBASE_PROJECT_ID }} \
+            | tail -n +6 \
+            | xargs -I{} gcloud artifacts docker images delete "${IMAGE_PATH}@{}" \
+              --quiet \
+              --project=${{ secrets.FIREBASE_PROJECT_ID }} || true
+
+      - name: Clean up old Cloud Run revisions (keep last 3)
+        run: |
+          gcloud run revisions list \
+            --service=music-app-server \
+            --region=us-central1 \
+            --project=${{ secrets.FIREBASE_PROJECT_ID }} \
+            --format="value(metadata.name)" \
+            --sort-by="~metadata.creationTimestamp" \
+            | tail -n +4 \
+            | xargs -I{} gcloud run revisions delete {} \
+              --region=us-central1 \
+              --project=${{ secrets.FIREBASE_PROJECT_ID }} \
+              --quiet || true
