@@ -1398,84 +1398,69 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
   }
 
   async streamAudio(videoId: string, range: string, res: any): Promise<void> {
-    const { exec } = await import('child_process');
-    const { promisify } = await import('util');
-    const execAsync = promisify(exec);
-    const https = await import('https');
-    const fs = await import('fs');
-    const os = await import('os');
-    const path = await import('path');
-
-    const ytDlpPath = process.env.YTDLP_PATH || 'yt-dlp';
     const ytCookies = await this.loadYtCookies();
     this.logger.log(`[streamAudio] Starting for ${videoId} hasCookies=${!!ytCookies}`);
 
-    // Write cookies to a temp Netscape-format file if available
-    let cookieFile: string | null = null;
-    if (ytCookies) {
-      cookieFile = path.join(os.tmpdir(), `yt_cookies_${Date.now()}.txt`);
-      const lines = ['# Netscape HTTP Cookie File'];
-      for (const part of ytCookies.split(';')) {
-        const [name, ...rest] = part.trim().split('=');
-        const value = rest.join('=');
-        if (name && value) {
-          lines.push(`.youtube.com\tTRUE\t/\tTRUE\t9999999999\t${name.trim()}\t${value.trim()}`);
-        }
+    // Use Python helper (scripts/fetch_stream.py) which mirrors
+    // youtube-audio-player/backend/app/main.py:
+    //   - yt-dlp android client → no PO-token gating
+    //   - urllib.urlopen → carries exact headers/cookies (plain https.get 403s)
+    const { spawn } = await import('child_process');
+    const scriptPath = '/app/scripts/fetch_stream.py';
+    const args = [scriptPath, videoId, range || '', ytCookies || ''];
+
+    const proc = spawn('python3', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let headerLine = '';
+    let headerParsed = false;
+    let buffer = Buffer.alloc(0);
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      if (headerParsed) {
+        res.write(chunk);
+        return;
       }
-      fs.writeFileSync(cookieFile, lines.join('\n'));
-    }
+      buffer = Buffer.concat([buffer, chunk]);
+      const newlineIdx = buffer.indexOf('\n');
+      if (newlineIdx === -1) return;
 
-    const cookieArg = cookieFile ? `--cookies "${cookieFile}"` : '';
-    let stdout: string;
-    try {
-      const result = await execAsync(
-        `${ytDlpPath} -f "bestaudio[ext=m4a]/bestaudio" --get-url "https://www.youtube.com/watch?v=${videoId}" --no-playlist ${cookieArg} --extractor-args "youtube:player_client=ios,android_vr"`,
-        { timeout: 30000 }
-      );
-      stdout = result.stdout;
-    } catch (e: any) {
-      this.logger.error(`[streamAudio] yt-dlp failed for ${videoId}: ${e.stderr?.substring(0, 300)}`);
-      if (cookieFile) try { fs.unlinkSync(cookieFile); } catch (_) {}
-      // Invalidate cookie cache if bot-check triggered so next request reloads
-      if (e.stderr?.includes('Sign in to confirm')) {
-        this._ytCookies = null;
-        this._ytCookiesLoadedAt = null;
+      headerLine = buffer.slice(0, newlineIdx).toString();
+      const rest = buffer.slice(newlineIdx + 1);
+      headerParsed = true;
+
+      let info: any;
+      try { info = JSON.parse(headerLine); } catch (_) { info = {}; }
+
+      if (info.error) {
+        this.logger.error(`[streamAudio] fetch_stream.py: ${info.error}`);
+        if (!res.headersSent) res.status(500).json({ message: info.error, needsCookies: !ytCookies });
+        proc.kill();
+        return;
       }
-      res.status(500).json({ message: 'yt-dlp failed', needsCookies: !ytCookies });
-      return;
-    }
-    if (cookieFile) try { fs.unlinkSync(cookieFile); } catch (_) {}
 
-    const streamUrl = stdout.trim().split('\n').find(l => l.startsWith('http'));
-    if (!streamUrl) {
-      this.logger.error(`[streamAudio] No valid URL for ${videoId}`);
-      res.status(500).json({ message: 'No stream URL returned', needsCookies: !ytCookies });
-      return;
-    }
-
-    this.logger.log(`[streamAudio] Proxying ${videoId} c=${new URL(streamUrl).searchParams.get('c')}`);
-
-    const headers: Record<string, string> = {
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.18 Safari/537.36',
-    };
-    if (range) headers['range'] = range;
-
-    https.get(streamUrl, { headers }, (ytRes) => {
-      this.logger.log(`[streamAudio] YouTube responded ${ytRes.statusCode} for ${videoId}`);
-      const status = ytRes.statusCode ?? 200;
-      const proxyHeaders: Record<string, string | string[]> = {
-        'Content-Type': (ytRes.headers['content-type'] as string) || 'audio/mp4',
+      this.logger.log(`[streamAudio] streaming ${videoId} status=${info.status}`);
+      const headers: Record<string, string> = {
+        'Content-Type': info.content_type || 'audio/mp4',
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'no-cache',
       };
-      if (ytRes.headers['content-length']) proxyHeaders['Content-Length'] = ytRes.headers['content-length'];
-      if (ytRes.headers['content-range']) proxyHeaders['Content-Range'] = ytRes.headers['content-range'] as string;
-      res.writeHead(status, proxyHeaders);
-      ytRes.pipe(res);
-    }).on('error', (e) => {
-      this.logger.error(`[streamAudio] proxy error for ${videoId}: ${e.message}`);
-      if (!res.headersSent) res.status(502).json({ message: 'Proxy error', error: e.message });
+      if (info.content_length) headers['Content-Length'] = info.content_length;
+      if (info.content_range) headers['Content-Range'] = info.content_range;
+
+      if (!res.headersSent) res.writeHead(info.status || 200, headers);
+      if (rest.length > 0) res.write(rest);
     });
+
+    proc.stderr.on('data', (data: Buffer) => {
+      this.logger.warn(`[streamAudio] py stderr: ${data.toString().substring(0, 200)}`);
+    });
+
+    proc.on('close', (code) => {
+      if (!res.headersSent) res.status(502).json({ message: 'fetch_stream.py exited: ' + code });
+      else res.end();
+    });
+
+    res.on('close', () => { try { proc.kill(); } catch (_) {} });
   }
 
   private async enrichSearchResults(data: any): Promise<SearchYouTubeResponseDto> {

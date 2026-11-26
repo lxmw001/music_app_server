@@ -20,6 +20,7 @@ RUN apk add --no-cache curl python3 && \
     chmod +x /usr/local/bin/yt-dlp
 
 COPY --from=builder /app/dist ./dist
+COPY scripts ./scripts
 
 EXPOSE 3000
 
