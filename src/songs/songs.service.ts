@@ -1047,29 +1047,35 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
       ? `playlists_generated/${songId}_${normalizedSearch}`
       : `playlists_generated/${songId}`;
 
-    // Try looking up as Firestore doc ID first; if not found, try by youtubeId field
-    let seedDoc = await this.firestore.doc(`songs/${songId}`).get();
-    if (!seedDoc.exists) {
+    // Resolve seed song data: Firestore doc ID → youtubeId field → YouTube API title
+    let seedSong: any = null;
+    let seedKey: string;
+    let resolvedDocId: string = songId;
+
+    const directDoc = await this.firestore.doc(`songs/${songId}`).get();
+    if (directDoc.exists) {
+      seedSong = directDoc.data();
+      resolvedDocId = songId;
+    } else {
+      // Try by youtubeId field (song exists in Firestore but keyed differently)
       const snap = await this.firestore.collection('songs')
         .where('youtubeId', '==', songId)
         .limit(1)
         .get();
-      if (!snap.empty) seedDoc = snap.docs[0] as any;
+      if (!snap.empty && snap.docs[0]) {
+        seedSong = snap.docs[0].data();
+        resolvedDocId = snap.docs[0].id;
+      }
     }
 
-    // If still not found, resolve title/artist from YouTube Data API and
-    // generate playlist by search query without a Firestore seed doc.
-    let seedSong: any;
-    let seedKey: string;
-    if (!seedDoc || !seedDoc.exists) {
-      const titles = await this.youtube.getVideoTitles(songId).catch(() => ({}));
+    if (!seedSong) {
+      // Not in Firestore — resolve title via YouTube Data API and fall back to search
+      const titles = await this.youtube.getVideoTitles(songId).catch(() => ({} as Record<string, string>));
       const title = titles[songId] || songId;
       seedSong = { title, artistName: '', genres: [], genre: '' };
-      seedKey = title.toLowerCase().trim() + '::';
-    } else {
-      seedSong = seedDoc.data();
-      seedKey = `${seedSong.title.toLowerCase().trim()}::${seedSong.artistName.toLowerCase().trim()}`;
     }
+
+    seedKey = `${(seedSong.title || '').toLowerCase().trim()}::${(seedSong.artistName || '').toLowerCase().trim()}`;
 
     const playlistDoc = await this.firestore.doc(cacheKey).get();
 
@@ -1103,9 +1109,11 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
 
     // Build a richer search query using artist, genre, and title
     const genre = seedSong.genres?.[0] || seedSong.genre || '';
-    const searchQuery = genre
-      ? `${seedSong.artistName} ${genre} music`
-      : `${seedSong.artistName} best songs`;
+    const artist = seedSong.artistName || '';
+    const title = seedSong.title || '';
+    const searchQuery = artist
+      ? (genre ? `${artist} ${genre} music` : `${artist} best songs`)
+      : `${title} similar songs`;
     const relatedVideos = await this.youtube.searchVideos(searchQuery, limit * 2);
     
     // Clean and classify with Gemini
