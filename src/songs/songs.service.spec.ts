@@ -27,7 +27,7 @@ describe('SongsService', () => {
         SongsService,
         { provide: FirestoreService, useValue: mockFirestore },
         { provide: GeminiService, useValue: { cleanTitle: jest.fn() } },
-        { provide: YouTubeService, useValue: { searchVideos: jest.fn() } },
+        { provide: YouTubeService, useValue: { searchVideos: jest.fn(), getVideoTitles: jest.fn().mockResolvedValue({}) } },
         { provide: LastFmService, useValue: { searchTrack: jest.fn(), getSimilarTracks: jest.fn() } },
         { provide: SongDeduplicationService, useValue: {
           getCanonicalSongId: jest.fn().mockResolvedValue(null),
@@ -126,7 +126,7 @@ describe("generatePlaylist — bug condition (Property 1)", () => {
   let service: SongsService;
   let mockFirestore: ReturnType<typeof createMockFirestore>;
   let mockGemini: { generate: jest.Mock; parseSearchIntent: jest.Mock };
-  let mockYoutube: { searchVideos: jest.Mock };
+  let mockYoutube: { searchVideos: jest.Mock; getVideoTitles: jest.Mock };
 
   beforeEach(async () => {
     mockFirestore = createMockFirestore();
@@ -136,7 +136,7 @@ describe("generatePlaylist — bug condition (Property 1)", () => {
         .mockResolvedValue('{"songs":[],"mixes":[],"videos":[],"artists":[]}'),
       parseSearchIntent: jest.fn().mockResolvedValue(null),
     };
-    mockYoutube = { searchVideos: jest.fn().mockResolvedValue([]) };
+    mockYoutube = { searchVideos: jest.fn().mockResolvedValue([]), getVideoTitles: jest.fn().mockResolvedValue({}) };
 
     // First call: seed song doc (exists)
     // Second call: playlist cache doc (does not exist)
@@ -212,7 +212,7 @@ describe("generatePlaylist — preservation (Property 2)", () => {
   let service: SongsService;
   let mockFirestore: ReturnType<typeof createMockFirestore>;
   let mockGemini: { generate: jest.Mock; parseSearchIntent: jest.Mock };
-  let mockYoutube: { searchVideos: jest.Mock };
+  let mockYoutube: { searchVideos: jest.Mock; getVideoTitles: jest.Mock };
 
   beforeEach(async () => {
     mockFirestore = createMockFirestore();
@@ -222,7 +222,7 @@ describe("generatePlaylist — preservation (Property 2)", () => {
         .mockResolvedValue('{"songs":[],"mixes":[],"videos":[],"artists":[]}'),
       parseSearchIntent: jest.fn().mockResolvedValue(null),
     };
-    mockYoutube = { searchVideos: jest.fn().mockResolvedValue([]) };
+    mockYoutube = { searchVideos: jest.fn().mockResolvedValue([]), getVideoTitles: jest.fn().mockResolvedValue({}) };
 
     // Default: valid seed song, then playlist cache miss
     mockFirestore._docRef.get
@@ -313,13 +313,20 @@ describe("generatePlaylist — preservation (Property 2)", () => {
     );
   });
 
-  it("missing songId throws NotFoundException even with search", async () => {
+  it("missing songId falls back to search using video title from YouTube API", async () => {
     mockFirestore._docRef.get
       .mockReset()
       .mockResolvedValue({ exists: false });
+    mockFirestore._collectionRef.get
+      .mockReset()
+      .mockResolvedValue({ empty: true, docs: [] });
+    // YouTube API returns a title for the unknown video id
+    mockYoutube.getVideoTitles = jest.fn().mockResolvedValue({ missing: "Some Song Title" });
 
-    await expect(
-      (service as any).generatePlaylist("missing", 30, "some query")
-    ).rejects.toThrow(NotFoundException);
+    // Should NOT throw — falls back to title-based search
+    const result = await (service as any).generatePlaylist("missing", 30, "some query");
+
+    expect(mockYoutube.getVideoTitles).toHaveBeenCalledWith("missing");
+    expect(Array.isArray(result)).toBe(true);
   });
 });

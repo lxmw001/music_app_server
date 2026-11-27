@@ -1,109 +1,83 @@
 #!/usr/bin/env python3
 """
-Fetch a YouTube audio stream URL and proxy the bytes to stdout.
+Fetch a YouTube audio stream and proxy the bytes to stdout.
 
-Mirrors youtube-audio-player/backend/app/main.py: uses urllib (via yt-dlp's
-plain URL fetching) so the request carries the exact headers/cookies used
-during extraction — googlevideo 403s plain Node/https requests (SABR/IP-lock).
+Uses yt-dlp as a Python library (not subprocess) so the urllib opener
+carries the exact headers/cookies used during extraction — the same
+approach as youtube-audio-player/backend/app/main.py which is known to
+work. Subprocess + --get-url stopped working when YouTube added bot
+verification for the android client.
 
 Protocol (stdout):
-  Line 1: JSON object with keys: status, content_type, content_length,
-          content_range  (or {"error": "..."} + exit 1)
-  Then:   the raw audio bytes
+  Line 1: JSON object: {status, content_type, content_length, content_range}
+           or {"error": "..."} + exit 1
+  Then:   raw audio bytes
 
 Args:
   1: video id
   2: range header (e.g. "bytes=0-1000") or ""
-  3: cookie header string or "" (raw Cookie header value)
 """
 import json
-import os
-import subprocess
 import sys
-import tempfile
-import urllib.request
 
-YTDLP = os.environ.get("YTDLP_PATH", "yt-dlp")
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.18 Safari/537.36"
+import yt_dlp
 
 
-def die(msg):
-    sys.stdout.write(json.dumps({"error": msg}) + "\n")
-    sys.stdout.flush()
+def die(msg: str) -> None:
+    sys.stdout.buffer.write((json.dumps({"error": msg}) + "\n").encode())
+    sys.stdout.buffer.flush()
     sys.exit(1)
 
 
-def main():
+def main() -> None:
     if len(sys.argv) < 2:
-        die("usage: fetch_stream.py <video_id> [range] [cookie]")
+        die("usage: fetch_stream.py <video_id> [range]")
 
     video_id = sys.argv[1]
     range_header = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else ""
-    cookie_header = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else ""
 
-    # 1. Resolve the stream URL via yt-dlp (android client — no PO-token gating)
-    cookie_file = None
-    cmd = [
-        YTDLP,
-        "-f", "bestaudio[ext=m4a]/bestaudio/best",
-        "--get-url",
-        "--no-playlist",
-        "--extractor-args", "youtube:player_client=android",
-        f"https://www.youtube.com/watch?v={video_id}",
-    ]
-    if cookie_header:
-        # Write cookies to a Netscape-format temp file
-        lines = ["# Netscape HTTP Cookie File"]
-        for part in cookie_header.split(";"):
-            if "=" not in part:
-                continue
-            name, _, value = part.strip().partition("=")
-            lines.append(
-                ".youtube.com\tTRUE\t/\tTRUE\t9999999999\t%s\t%s" % (name, value)
-            )
-        fd, cookie_file = tempfile.mkstemp(suffix=".txt", prefix="ytc_")
-        with os.fdopen(fd, "w") as f:
-            f.write("\n".join(lines))
-        cmd += ["--cookies", cookie_file]
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # 1. Resolve stream URL via yt-dlp library (android client bypasses
+    #    PO-token gating; library mode carries the right cookies/headers)
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
+    }
 
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if out.returncode != 0:
-            die("yt-dlp failed: " + out.stderr.strip()[:300])
-    finally:
-        if cookie_file:
-            try:
-                os.unlink(cookie_file)
-            except OSError:
-                pass
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            audio_url = info.get("url")
+            if not audio_url:
+                die("no audio url in yt-dlp response")
+    except Exception as e:  # noqa: BLE001
+        die(f"yt-dlp failed: {e}")
 
-    url = next((l for l in out.stdout.splitlines() if l.startswith("http")), None)
-    if not url:
-        die("no stream url returned")
-
-    # 2. Fetch with urllib, forwarding Range + cookies (mirrors yt-dlp's opener)
-    req = urllib.request.Request(url)
-    req.add_header("User-Agent", UA)
+    # 2. Fetch audio bytes using yt-dlp's own urllib opener so the request
+    #    carries the same headers/cookies as the extraction — plain urllib
+    #    requests get 403 from googlevideo (SABR / IP-lock).
+    req = yt_dlp.utils.sanitized_Request(audio_url)
     if range_header:
         req.add_header("Range", range_header)
-    if cookie_header:
-        req.add_header("Cookie", cookie_header)
 
     try:
-        resp = urllib.request.urlopen(req, timeout=15)
-    except urllib.error.HTTPError as e:
-        die("upstream HTTP %d" % e.code)
+        with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
+            resp = ydl.urlopen(req)
     except Exception as e:  # noqa: BLE001
-        die(str(e))
+        die(f"fetch failed: {e}")
 
-    # 3. Emit header line, then raw bytes
-    info = {
-        "status": resp.status,
+    # 3. Emit JSON header line, then raw bytes
+    info_line = {
+        "status": getattr(resp, "status", 200),
         "content_type": resp.headers.get("Content-Type", "audio/mp4"),
         "content_length": resp.headers.get("Content-Length"),
         "content_range": resp.headers.get("Content-Range"),
     }
-    sys.stdout.buffer.write((json.dumps(info) + "\n").encode())
+    sys.stdout.buffer.write((json.dumps(info_line) + "\n").encode())
     sys.stdout.buffer.flush()
 
     while True:
