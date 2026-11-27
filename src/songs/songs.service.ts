@@ -1047,12 +1047,29 @@ Input: ${JSON.stringify(unknownForGemini.map(r => ({ videoId: r.videoId, title: 
       ? `playlists_generated/${songId}_${normalizedSearch}`
       : `playlists_generated/${songId}`;
 
-    const seedDoc = await this.firestore.doc(`songs/${songId}`).get();
+    // Try looking up as Firestore doc ID first; if not found, try by youtubeId field
+    let seedDoc = await this.firestore.doc(`songs/${songId}`).get();
     if (!seedDoc.exists) {
-      throw new NotFoundException('Song not found');
+      const snap = await this.firestore.collection('songs')
+        .where('youtubeId', '==', songId)
+        .limit(1)
+        .get();
+      if (!snap.empty) seedDoc = snap.docs[0] as any;
     }
-    const seedSong = seedDoc.data();
-    const seedKey = `${seedSong.title.toLowerCase().trim()}::${seedSong.artistName.toLowerCase().trim()}`;
+
+    // If still not found, resolve title/artist from YouTube Data API and
+    // generate playlist by search query without a Firestore seed doc.
+    let seedSong: any;
+    let seedKey: string;
+    if (!seedDoc || !seedDoc.exists) {
+      const titles = await this.youtube.getVideoTitles(songId).catch(() => ({}));
+      const title = titles[songId] || songId;
+      seedSong = { title, artistName: '', genres: [], genre: '' };
+      seedKey = title.toLowerCase().trim() + '::';
+    } else {
+      seedSong = seedDoc.data();
+      seedKey = `${seedSong.title.toLowerCase().trim()}::${seedSong.artistName.toLowerCase().trim()}`;
+    }
 
     const playlistDoc = await this.firestore.doc(cacheKey).get();
 
