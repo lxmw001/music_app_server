@@ -84,7 +84,10 @@ export class SongsController {
   ): Promise<void> {
     const logger = new Logger('AudioStream');
     const args = this.songsService.getAudioStreamArgs(videoId, range);
-    const proc = spawn('python3', args, { timeout: 300_000 });
+    // Use venv python when available (set by Dockerfile for Cloud Run),
+    // fall back to system python3 for local dev.
+    const python = process.env.YTDLP_PYTHON || 'python3';
+    const proc = spawn(python, args, { timeout: 300_000 });
 
     let headerParsed = false;
     let headerBuf = '';

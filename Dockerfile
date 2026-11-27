@@ -16,9 +16,13 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 RUN apk add --no-cache curl python3 py3-pip && \
-    pip3 install --no-cache-dir --break-system-packages yt-dlp && \
+    python3 -m venv /opt/yt-dlp-env && \
+    /opt/yt-dlp-env/bin/pip install --no-cache-dir yt-dlp && \
     curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
     chmod +x /usr/local/bin/yt-dlp
+
+# Make the venv's python3 the default for scripts
+ENV YTDLP_PYTHON=/opt/yt-dlp-env/bin/python3
 
 COPY --from=builder /app/dist ./dist
 COPY scripts ./scripts

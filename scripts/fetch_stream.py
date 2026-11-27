@@ -21,6 +21,7 @@ import json
 import sys
 
 import yt_dlp
+from yt_dlp.networking.common import Request
 
 
 def die(msg: str) -> None:
@@ -57,12 +58,12 @@ def main() -> None:
     except Exception as e:  # noqa: BLE001
         die(f"yt-dlp failed: {e}")
 
-    # 2. Fetch audio bytes using yt-dlp's own urllib opener so the request
-    #    carries the same headers/cookies as the extraction — plain urllib
-    #    requests get 403 from googlevideo (SABR / IP-lock).
-    req = yt_dlp.utils.sanitized_Request(audio_url)
+    # 2. Fetch audio bytes using yt-dlp's own networking handler so the
+    #    request carries the same headers/cookies as the extraction — plain
+    #    urllib requests get 403 from googlevideo (SABR / IP-lock).
+    req = Request(audio_url)
     if range_header:
-        req.add_header("Range", range_header)
+        req.headers["Range"] = range_header
 
     try:
         with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
