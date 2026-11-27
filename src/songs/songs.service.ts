@@ -1547,4 +1547,13 @@ Input: ${JSON.stringify(relatedVideos.map(r => ({ videoId: r.videoId, title: r.t
       return true;
     });
   }
+
+  /**
+   * Returns the spawn args needed to run fetch_stream.py for the given video.
+   * The controller handles spawning and streaming the response.
+   */
+  getAudioStreamArgs(videoId: string, range: string): string[] {
+    const scriptPath = require('path').join(process.cwd(), 'scripts', 'fetch_stream.py');
+    return [scriptPath, videoId, range || ''];
+  }
 }

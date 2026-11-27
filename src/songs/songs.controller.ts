@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Query, Post, UseGuards, Res, Headers } from '@nestjs/common';
+import { Body, Controller, Get, Param, Query, Post, UseGuards, Res, Headers, Logger } from '@nestjs/common';
 import { Response } from 'express';
+import { spawn } from 'child_process';
 import { OptionalAuthGuard } from '../auth/optional-auth.guard';
 import { SongsService } from './songs.service';
 import { PaginationDto } from './dto/pagination.dto';
@@ -81,6 +82,72 @@ export class SongsController {
     @Headers('range') range: string,
     @Res() res: Response,
   ): Promise<void> {
-    return this.songsService.streamAudio(videoId, range, res);
+    const logger = new Logger('AudioStream');
+    const args = this.songsService.getAudioStreamArgs(videoId, range);
+    const proc = spawn('python3', args, { timeout: 300_000 });
+
+    let headerParsed = false;
+    let headerBuf = '';
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      if (headerParsed) {
+        res.write(chunk);
+        return;
+      }
+
+      // First newline-terminated line is the JSON header, rest is audio bytes
+      headerBuf += chunk.toString('binary');
+      const nl = headerBuf.indexOf('\n');
+      if (nl === -1) return;
+
+      const headerLine = headerBuf.slice(0, nl);
+      const rest = Buffer.from(headerBuf.slice(nl + 1), 'binary');
+      headerParsed = true;
+
+      let info: any;
+      try {
+        info = JSON.parse(headerLine);
+      } catch {
+        res.status(500).json({ message: 'bad header from stream script' });
+        proc.kill();
+        return;
+      }
+
+      if (info.error) {
+        logger.error(`script error: ${info.error}`);
+        res.status(502).json({ message: info.error });
+        proc.kill();
+        return;
+      }
+
+      res.status(info.status ?? 200);
+      res.setHeader('Content-Type', info.content_type ?? 'audio/mp4');
+      res.setHeader('Accept-Ranges', 'bytes');
+      if (info.content_length) res.setHeader('Content-Length', info.content_length);
+      if (info.content_range) res.setHeader('Content-Range', info.content_range);
+
+      if (rest.length > 0) res.write(rest);
+    });
+
+    proc.stderr.on('data', (d: Buffer) => {
+      logger.warn(`stderr: ${d.toString().slice(0, 200)}`);
+    });
+
+    proc.on('close', (code) => {
+      if (!headerParsed && code !== 0) {
+        logger.error(`script exited ${code} before header`);
+        if (!res.headersSent) {
+          res.status(502).json({ message: `stream script exited ${code}` });
+          return;
+        }
+      }
+      if (!res.writableEnded) res.end();
+    });
+
+    proc.on('error', (err) => {
+      logger.error(`spawn error: ${err.message}`);
+      if (!res.headersSent) res.status(500).json({ message: err.message });
+      if (!res.writableEnded) res.end();
+    });
   }
 }
