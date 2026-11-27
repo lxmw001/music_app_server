@@ -15,7 +15,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production
 
-RUN apk add --no-cache curl python3 && \
+RUN apk add --no-cache curl python3 py3-pip && \
+    pip3 install --no-cache-dir --break-system-packages yt-dlp && \
     curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
     chmod +x /usr/local/bin/yt-dlp
 
