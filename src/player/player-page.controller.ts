@@ -1,12 +1,10 @@
-import { Controller, Get, Header } from '@nestjs/common';
+import { Controller, Get, Header, Param, Res } from '@nestjs/common';
+import { Response } from 'express';
+import axios from 'axios';
 
 /**
- * Serves the YouTube IFrame player host page.
- *
- * Why this exists: YouTube embeds inside an Android WebView loaded via
- * loadDataWithBaseURL() fail with error 152 because the page has no real
- * remote origin, so no valid Referer is sent with iframe requests. Hosting
- * the player page on a real HTTPS origin fixes that.
+ * Serves the YouTube IFrame player host page and proxies InnerTube requests
+ * (which are blocked by CORS when made directly from the WebView).
  */
 @Controller('player')
 export class PlayerPageController {
@@ -15,6 +13,56 @@ export class PlayerPageController {
   @Header('Cache-Control', 'no-store')
   getPlayerPage(): string {
     return PLAYER_HTML;
+  }
+
+  /**
+   * Proxy: resolve YouTube audio URL server-side (no CORS).
+   * Returns { url, contentLength, mimeType } for the best audio-only format.
+   */
+  @Get('resolve/:videoId')
+  @Header('Cache-Control', 'no-store')
+  async resolveAudio(
+    @Param('videoId') videoId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    try {
+      const resp = await axios.post(
+        'https://www.youtube.com/youtubei/v1/player?prettyPrint=false',
+        {
+          videoId,
+          context: {
+            client: {
+              clientName: 'ANDROID_EMBEDDED_PLAYER',
+              clientVersion: '19.13.36',
+              androidSdkVersion: 30,
+              hl: 'en',
+              gl: 'US',
+            },
+          },
+        },
+        { headers: { 'Content-Type': 'application/json' }, timeout: 15_000 },
+      );
+
+      const formats: any[] =
+        resp.data?.streamingData?.adaptiveFormats ?? [];
+      const audioFmts = formats
+        .filter((f) => f.mimeType?.includes('audio/mp4') && f.url)
+        .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+
+      if (!audioFmts.length) {
+        res.status(502).json({ error: 'no audio format found' });
+        return;
+      }
+
+      const fmt = audioFmts[0];
+      res.json({
+        url: fmt.url,
+        contentLength: fmt.contentLength ?? null,
+        mimeType: fmt.mimeType,
+      });
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
   }
 }
 
@@ -175,48 +223,31 @@ const PLAYER_HTML = `<!DOCTYPE html>
       return false;
     };
 
-    // === Audio Download via InnerTube + fetch() ===
-    // Calls YouTube's InnerTube player endpoint from within the authenticated
-    // WebView session to get a non-IP-locked audio URL, then streams bytes
-    // back to Android via the JS bridge in base64 chunks.
+    // === Audio Download via server proxy + fetch() ===
+    // The WebView can't POST directly to YouTube's InnerTube API (CORS).
+    // Our server proxies the InnerTube call and returns the audio URL,
+    // then we fetch the audio bytes directly (Chromium handles IP-locked URLs).
     window.__download = function(videoId, downloadId) {
       if (!window.AndroidBridge || !AndroidBridge.onDownloadChunk) {
         console.log('[download] no AndroidBridge');
         return;
       }
 
-      fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoId: videoId,
-          context: {
-            client: {
-              clientName: 'ANDROID_EMBEDDED_PLAYER',
-              clientVersion: '19.13.36',
-              androidSdkVersion: 30,
-              hl: 'en', gl: 'US'
-            }
+      // 1. Ask our server to resolve the audio URL (server-to-server, no CORS)
+      fetch('/player/resolve/' + videoId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.error || !data.url) {
+            AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: data.error || 'no url' }));
+            return;
           }
+          // 2. Fetch audio bytes directly — Chromium's network stack handles
+          //    IP-locked googlevideo URLs correctly
+          _fetchAndSendChunks(data.url, data.contentLength || 0, downloadId);
         })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        var formats = (data.streamingData && data.streamingData.adaptiveFormats) || [];
-        var audioFmts = formats.filter(function(f) {
-          return f.mimeType && f.mimeType.indexOf('audio/mp4') !== -1 && f.url;
+        .catch(function(e) {
+          AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: 'resolve: ' + e }));
         });
-        audioFmts.sort(function(a, b) { return (b.bitrate || 0) - (a.bitrate || 0); });
-        var fmt = audioFmts[0];
-        if (!fmt || !fmt.url) {
-          AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: 'no audio format found' }));
-          return;
-        }
-        _fetchAndSendChunks(fmt.url, fmt.contentLength || 0, downloadId);
-      })
-      .catch(function(e) {
-        AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: 'innertube: ' + e }));
-      });
     };
 
     function _fetchAndSendChunks(url, totalSize, downloadId) {
