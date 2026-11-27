@@ -176,84 +176,84 @@ const PLAYER_HTML = `<!DOCTYPE html>
     };
 
     // === Audio Download via InnerTube + fetch() ===
-    // Uses Chromium's network stack (which handles IP-locked URLs) to download
-    // audio and stream chunks back to Android via the JS bridge.
+    // Calls YouTube's InnerTube player endpoint from within the authenticated
+    // WebView session to get a non-IP-locked audio URL, then streams bytes
+    // back to Android via the JS bridge in base64 chunks.
     window.__download = function(videoId, downloadId) {
-      if (!window.AndroidBridge || !AndroidBridge.onDownloadChunk) return;
-      // Get the audio URL from the currently loaded player if videoId matches,
-      // otherwise use ytdl-style innertube to resolve it.
-      var audioUrl = null;
-      try {
-        if (player && player.getVideoUrl) {
-          // player.getVideoUrl() returns the watch URL not the stream — we need
-          // to use the MediaSource API to intercept the actual audio URL.
-          // Instead, use fetch() against YouTube's InnerTube player endpoint.
-        }
-      } catch(e) {}
-
-      // Use YouTube's InnerTube API to get a playable audio URL server-side
-      // is not possible here without a PO token. Instead, load the video into
-      // a hidden <video> element and use MediaSource to capture the stream URL.
-      // Simplest approach: use the existing player's internal URL via
-      // getInternalPlayer().getPlayerState() — not exposed.
-      //
-      // Fallback: use fetch() on a known audio-only endpoint format.
-      // The most reliable: load videoId in player, get URL from media element.
-      var videoEl = document.querySelector('video');
-      if (videoEl && videoEl.src && videoEl.src.indexOf('googlevideo') !== -1) {
-        _fetchAndSendChunks(videoEl.src, downloadId);
-      } else {
-        // Load the video first, then capture
-        window.__cmd('load', videoId, 0);
-        var attempts = 0;
-        var interval = setInterval(function() {
-          var el = document.querySelector('video');
-          if (el && el.src && el.src.indexOf('googlevideo') !== -1) {
-            clearInterval(interval);
-            _fetchAndSendChunks(el.src, downloadId);
-          } else if (++attempts > 20) {
-            clearInterval(interval);
-            AndroidBridge.onDownloadChunk(JSON.stringify({id: downloadId, error: 'no video src found'}));
-          }
-        }, 500);
+      if (!window.AndroidBridge || !AndroidBridge.onDownloadChunk) {
+        console.log('[download] no AndroidBridge');
+        return;
       }
+
+      fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId: videoId,
+          context: {
+            client: {
+              clientName: 'ANDROID_EMBEDDED_PLAYER',
+              clientVersion: '19.13.36',
+              androidSdkVersion: 30,
+              hl: 'en', gl: 'US'
+            }
+          }
+        })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var formats = (data.streamingData && data.streamingData.adaptiveFormats) || [];
+        var audioFmts = formats.filter(function(f) {
+          return f.mimeType && f.mimeType.indexOf('audio/mp4') !== -1 && f.url;
+        });
+        audioFmts.sort(function(a, b) { return (b.bitrate || 0) - (a.bitrate || 0); });
+        var fmt = audioFmts[0];
+        if (!fmt || !fmt.url) {
+          AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: 'no audio format found' }));
+          return;
+        }
+        _fetchAndSendChunks(fmt.url, fmt.contentLength || 0, downloadId);
+      })
+      .catch(function(e) {
+        AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: 'innertube: ' + e }));
+      });
     };
 
-    function _fetchAndSendChunks(url, downloadId) {
+    function _fetchAndSendChunks(url, totalSize, downloadId) {
+      AndroidBridge.onDownloadChunk(JSON.stringify({
+        id: downloadId, total: parseInt(totalSize, 10) || 0, started: true
+      }));
       fetch(url)
         .then(function(resp) {
           if (!resp.ok) {
-            AndroidBridge.onDownloadChunk(JSON.stringify({id: downloadId, error: 'HTTP ' + resp.status}));
+            AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: 'HTTP ' + resp.status }));
             return;
           }
-          var total = parseInt(resp.headers.get('content-length') || '0', 10);
-          AndroidBridge.onDownloadChunk(JSON.stringify({id: downloadId, total: total, started: true}));
           var reader = resp.body.getReader();
           var received = 0;
           function pump() {
             reader.read().then(function(result) {
               if (result.done) {
-                AndroidBridge.onDownloadChunk(JSON.stringify({id: downloadId, done: true}));
+                AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, done: true }));
                 return;
               }
-              var chunk = result.value; // Uint8Array
-              // Convert to base64 to pass through the JS bridge
+              var chunk = result.value;
               var binary = '';
-              for (var i = 0; i < chunk.length; i++) {
-                binary += String.fromCharCode(chunk[i]);
-              }
-              var b64 = btoa(binary);
-              received += chunk.length;
-              AndroidBridge.onDownloadChunk(JSON.stringify({id: downloadId, chunk: b64, received: received}));
+              var len = chunk.length;
+              for (var i = 0; i < len; i++) binary += String.fromCharCode(chunk[i]);
+              received += len;
+              AndroidBridge.onDownloadChunk(JSON.stringify({
+                id: downloadId, chunk: btoa(binary), received: received
+              }));
               pump();
             }).catch(function(e) {
-              AndroidBridge.onDownloadChunk(JSON.stringify({id: downloadId, error: e.toString()}));
+              AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: e.toString() }));
             });
           }
           pump();
         })
         .catch(function(e) {
-          AndroidBridge.onDownloadChunk(JSON.stringify({id: downloadId, error: e.toString()}));
+          AndroidBridge.onDownloadChunk(JSON.stringify({ id: downloadId, error: e.toString() }));
         });
     }
   </script>
