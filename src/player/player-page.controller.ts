@@ -1,6 +1,5 @@
 import { Controller, Get, Header, Param, Res } from '@nestjs/common';
 import { Response } from 'express';
-import axios from 'axios';
 
 /**
  * Serves the YouTube IFrame player host page and proxies InnerTube requests
@@ -16,8 +15,9 @@ export class PlayerPageController {
   }
 
   /**
-   * Proxy: resolve YouTube audio URL server-side (no CORS).
+   * Proxy: resolve YouTube audio URL server-side using yt-dlp.
    * Returns { url, contentLength, mimeType } for the best audio-only format.
+   * The client then fetches the bytes directly (Chromium handles IP-locked URLs).
    */
   @Get('resolve/:videoId')
   @Header('Cache-Control', 'no-store')
@@ -25,44 +25,40 @@ export class PlayerPageController {
     @Param('videoId') videoId: string,
     @Res() res: Response,
   ): Promise<void> {
-    try {
-      const resp = await axios.post(
-        'https://www.youtube.com/youtubei/v1/player?prettyPrint=false',
-        {
-          videoId,
-          context: {
-            client: {
-              clientName: 'ANDROID_EMBEDDED_PLAYER',
-              clientVersion: '19.13.36',
-              androidSdkVersion: 30,
-              hl: 'en',
-              gl: 'US',
-            },
-          },
-        },
-        { headers: { 'Content-Type': 'application/json' }, timeout: 15_000 },
-      );
+    const { spawn } = await import('child_process');
+    const path = await import('path');
 
-      const formats: any[] =
-        resp.data?.streamingData?.adaptiveFormats ?? [];
-      const audioFmts = formats
-        .filter((f) => f.mimeType?.includes('audio/mp4') && f.url)
-        .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+    // Use yt-dlp to get the audio URL — it handles bot checks better than
+    // a raw InnerTube call from a flagged IP.
+    const python = process.env.YTDLP_PYTHON || 'python3';
+    const script = path.join(process.cwd(), 'scripts', 'resolve_audio_url.py');
 
-      if (!audioFmts.length) {
-        res.status(502).json({ error: 'no audio format found' });
+    const proc = spawn(python, [script, videoId], { timeout: 30_000 });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+
+    proc.on('close', (code) => {
+      if (code !== 0 || !stdout.trim()) {
+        res.status(502).json({ error: stderr.trim().slice(0, 200) || 'resolve failed' });
         return;
       }
+      try {
+        const data = JSON.parse(stdout.trim());
+        if (data.error) {
+          res.status(502).json({ error: data.error });
+        } else {
+          res.json(data);
+        }
+      } catch {
+        res.status(502).json({ error: 'bad response from resolver' });
+      }
+    });
 
-      const fmt = audioFmts[0];
-      res.json({
-        url: fmt.url,
-        contentLength: fmt.contentLength ?? null,
-        mimeType: fmt.mimeType,
-      });
-    } catch (e: any) {
-      res.status(502).json({ error: e.message });
-    }
+    proc.on('error', (err) => {
+      res.status(500).json({ error: err.message });
+    });
   }
 }
 
